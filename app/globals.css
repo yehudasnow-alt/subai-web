@@ -1,0 +1,35 @@
+@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;700;900&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg-deep: #0a0a0f;
+  --bg-card: #111118;
+  --bg-surface: #16161f;
+  --bg-hover: #1c1c28;
+  --border: #252530;
+  --border-light: #2f2f3d;
+  --text: #e8e8ee;
+  --text-dim: #8b8b9e;
+  --text-muted: #5a5a6e;
+  --accent: #3b82f6;
+  --accent-glow: #3b82f640;
+  --accent-light: #60a5fa;
+  --accent-dark: #1d4ed8;
+  --green: #22c55e;
+  --green-dim: #22c55e30;
+  --red: #ef4444;
+  --radius: 12px;
+  --font-he: 'Heebo', sans-serif;
+  --font-en: 'Outfit', 'Heebo', sans-serif;
+  --max-w: 1100px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg-deep); color: var(--text);
+  font-family: var(--font-he); line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--accent); color: #fff; }
+a { color: var(--accent-light); text-decoration: none; }
+a:hover { text-decoration: underline; }
