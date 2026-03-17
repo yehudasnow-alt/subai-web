@@ -1,3 +1,4 @@
+export const maxDuration = 60;
 /**
  * SubAI — Transcription API Endpoint (FIXED)
  * POST /api/transcribe
