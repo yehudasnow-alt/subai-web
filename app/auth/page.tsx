@@ -15,19 +15,49 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [gLoading, setGLoading] = useState(false);
   const [msg, setMsg] = useState({ text: "", ok: false });
+  const [pluginSession, setPluginSession] = useState<string | null>(null);
 
-  // Check if already logged in
   useEffect(() => {
+    // Check for plugin_session in URL
+    const params = new URLSearchParams(window.location.search);
+    const ps = params.get("plugin_session");
+    if (ps) setPluginSession(ps);
+
+    // Check if already logged in
     supabase.auth.getUser().then(({ data }) => {
-      if (data.user) window.location.href = "/dashboard";
+      if (data.user) {
+        if (ps) {
+          // Store session for plugin and show success
+          storePluginSession(data.user.id, ps);
+        } else {
+          window.location.href = "/dashboard";
+        }
+      }
     });
   }, []);
 
+  async function storePluginSession(userId: string, sessionId: string) {
+    try {
+      await fetch("/api/auth/plugin-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "store", session_id: sessionId, user_id: userId }),
+      });
+      setMsg({ text: "התחברת בהצלחה! חזור לפלאגין ב-Premiere Pro — ההתחברות תזוהה אוטומטית.", ok: true });
+    } catch (e) {
+      setMsg({ text: "שגיאה בחיבור לפלאגין", ok: false });
+    }
+  }
+
   async function handleGoogle() {
     setGLoading(true);
+    const redirectUrl = pluginSession
+      ? `${window.location.origin}/dashboard?plugin_session=${pluginSession}`
+      : `${window.location.origin}/dashboard`;
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/dashboard` },
+      options: { redirectTo: redirectUrl },
     });
     if (error) {
       setMsg({ text: error.message, ok: false });
@@ -40,16 +70,23 @@ export default function AuthPage() {
     setLoading(true); setMsg({ text: "", ok: false });
     try {
       if (mode === "signup") {
+        const redirectUrl = pluginSession
+          ? `${window.location.origin}/dashboard?plugin_session=${pluginSession}`
+          : `${window.location.origin}/dashboard`;
         const { error } = await supabase.auth.signUp({
           email, password,
-          options: { data: { full_name: name }, emailRedirectTo: `${window.location.origin}/dashboard` },
+          options: { data: { full_name: name }, emailRedirectTo: redirectUrl },
         });
         if (error) throw error;
         setMsg({ text: "נרשמת בהצלחה! בדוק את המייל לאימות.", ok: true });
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        window.location.href = "/dashboard";
+        if (pluginSession && data.user) {
+          await storePluginSession(data.user.id, pluginSession);
+        } else {
+          window.location.href = "/dashboard";
+        }
       }
     } catch (err: any) {
       const messages: Record<string, string> = {
@@ -75,7 +112,6 @@ export default function AuthPage() {
   return (
     <div style={S.page}>
       <div style={{ width: "100%", maxWidth: 420 }}>
-        {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <a href="/" style={{ textDecoration: "none" }}>
             <div style={{ width: 48, height: 48, borderRadius: 14, margin: "0 auto 12px",
@@ -85,12 +121,13 @@ export default function AuthPage() {
             <div style={{ fontSize: 24, fontWeight: 800, color: "#e8e8ee" }}>Sub<span style={{ color: "#60a5fa" }}>AI</span></div>
           </a>
           <p style={{ color: "#8b8b9e", fontSize: 14, marginTop: 6 }}>
-            {mode === "signup" ? "צור חשבון חינם — 10 דקות תמלול מתנה" : "התחבר לחשבון שלך"}
+            {pluginSession
+              ? "התחבר כדי לחבר את הפלאגין"
+              : mode === "signup" ? "צור חשבון חינם — 10 דקות תמלול מתנה" : "התחבר לחשבון שלך"}
           </p>
         </div>
 
         <div style={S.card}>
-          {/* Google Button */}
           <button onClick={handleGoogle} disabled={gLoading}
             style={{
               ...S.btn, background: "#fff", color: "#333", display: "flex",
@@ -99,17 +136,15 @@ export default function AuthPage() {
               border: "1px solid #ddd",
             }}>
             <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-            {gLoading ? "מתחבר..." : mode === "signup" ? "הירשם עם Google" : "התחבר עם Google"}
+            {gLoading ? "..." : "המשך עם Google"}
           </button>
 
-          {/* Divider */}
           <div style={S.divider}>
             <div style={S.divLine}></div>
             <span style={{ fontSize: 12, color: "#5a5a6e" }}>או עם אימייל</span>
             <div style={S.divLine}></div>
           </div>
 
-          {/* Email Form */}
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {mode === "signup" && (
               <div>
@@ -130,13 +165,13 @@ export default function AuthPage() {
             </div>
             <button type="submit" disabled={loading}
               style={{ ...S.btn, opacity: loading ? 0.5 : 1, cursor: loading ? "not-allowed" : "pointer" }}>
-              {loading ? "⏳" : mode === "signup" ? "צור חשבון חינם ←" : "התחבר ←"}
+              {loading ? "..." : mode === "signup" ? "צור חשבון חינם ←" : "התחבר ←"}
             </button>
           </form>
 
           {msg.text && (
             <div style={{
-              marginTop: 12, padding: 10, borderRadius: 8, fontSize: 13, textAlign: "center",
+              marginTop: 12, padding: 12, borderRadius: 8, fontSize: 13, textAlign: "center", lineHeight: 1.8,
               background: msg.ok ? "#22c55e15" : "#ef444415", color: msg.ok ? "#22c55e" : "#ef4444",
               border: `1px solid ${msg.ok ? "#22c55e30" : "#ef444430"}`,
             }}>{msg.text}</div>
