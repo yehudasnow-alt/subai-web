@@ -1,272 +1,164 @@
 "use client";
 import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-type Profile = {
-  id: string; email: string; full_name: string;
-  plan: string; minutes_used: number; minutes_limit: number;
-  api_key: string; subscription_status: string; period_end: string | null;
-};
-
-export default function Dashboard() {
-  const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
-  const [upgrading, setUpgrading] = useState(false);
-  const [canceling, setCanceling] = useState(false);
-  const [cancelMsg, setCancelMsg] = useState("");
-  const [showUpgraded, setShowUpgraded] = useState(false);
-
-  useEffect(() => {
-    // Check for upgrade success
-    if (window.location.search.includes("upgraded=true")) {
-      setShowUpgraded(true);
-      window.history.replaceState({}, "", "/dashboard");
-      setTimeout(() => setShowUpgraded(false), 5000);
-    }
-    loadUser();
-  }, []);
-
-  async function loadUser() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { window.location.href = "/auth"; return; }
-    setUser(user);
-    const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single();
-    setProfile(data);
-    setLoading(false);
-  }
-
-  async function copyKey() {
-    if (!profile?.api_key) return;
-    await navigator.clipboard.writeText(profile.api_key);
-    setCopied(true); setTimeout(() => setCopied(false), 2000);
-  }
-
-  async function handleUpgrade(plan: string) {
-    if (!user || !profile) return;
-    setUpgrading(true);
-    try {
-      const res = await fetch("/api/checkout", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan, period: "monthly", userId: user.id, email: user.email }),
-      });
-      const data = await res.json();
-      if (data.url) window.location.href = data.url;
-      else alert(data.error || "שגיאה");
-    } catch (e) { alert("שגיאת חיבור"); }
-    setUpgrading(false);
-  }
-
-  async function handleCancel() {
-    if (!user || !confirm("האם אתה בטוח? המנוי ישאר פעיל עד סוף תקופת החיוב.")) return;
-    setCanceling(true); setCancelMsg("");
-    try {
-      const res = await fetch("/api/cancel-subscription", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setCancelMsg(`המנוי יבוטל ב-${data.cancel_at}. עד אז תוכל להמשיך להשתמש.`);
-        loadUser(); // Refresh
-      } else {
-        setCancelMsg(data.error || "שגיאה בביטול");
-      }
-    } catch (e) { setCancelMsg("שגיאת חיבור"); }
-    setCanceling(false);
-  }
-
-  async function handleLogout() {
-    await supabase.auth.signOut();
-    window.location.href = "/";
-  }
-
-  if (loading) return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ color: "#8b8b9e" }}>⏳ טוען...</div>
-    </div>
-  );
-
-  const remaining = Math.max(0, (profile?.minutes_limit || 0) - (profile?.minutes_used || 0));
-  const usagePct = profile?.minutes_limit ? Math.min(100, ((profile.minutes_used || 0) / profile.minutes_limit) * 100) : 0;
-  const planNames: Record<string, string> = { free: "חינמי 🆓", pro: "פרו ⭐", studio: "סטודיו 💎" };
-  const isCanceled = profile?.subscription_status === "canceled";
-  const isPaid = profile?.plan === "pro" || profile?.plan === "studio";
-
-  // Format renewal/cancel date
-  const periodEnd = profile?.period_end ? new Date(profile.period_end) : null;
-  const periodEndStr = periodEnd ? periodEnd.toLocaleDateString("he-IL", { day: "numeric", month: "long", year: "numeric" }) : null;
-
-  const S: Record<string, React.CSSProperties> = {
-    page: { minHeight: "100vh", padding: 24, maxWidth: 700, margin: "0 auto" },
-    nav: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 32, paddingBottom: 16, borderBottom: "1px solid #252530" },
-    logo: { display: "flex", alignItems: "center", gap: 10, textDecoration: "none" },
-    logoSq: { width: 32, height: 32, borderRadius: 9, background: "linear-gradient(135deg,#3b82f6,#6366f1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: "#fff" },
-    card: { background: "#111118", border: "1px solid #252530", borderRadius: 14, padding: 24, marginBottom: 16 },
-    label: { fontSize: 11, fontWeight: 700, color: "#5a5a6e", textTransform: "uppercase" as const, letterSpacing: "0.5px", marginBottom: 12 },
-    btn: { padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font-he)", transition: "all 0.2s", border: "none" },
-  };
+export default function Home() {
+  const [show, setShow] = useState(false);
+  useEffect(() => { setShow(true); }, []);
 
   return (
-    <div style={S.page}>
-      {/* Upgrade success banner */}
-      {showUpgraded && (
-        <div style={{
-          background: "#22c55e15", border: "1px solid #22c55e30", borderRadius: 12,
-          padding: "14px 20px", marginBottom: 16, textAlign: "center", fontSize: 14, color: "#22c55e",
-        }}>🎉 המנוי שודרג בהצלחה! תוכנית חדשה פעילה.</div>
-      )}
+    <div style={{ background: "#06060e", color: "#e8e8f0", minHeight: "100vh", fontFamily: "'Rubik', 'Segoe UI', sans-serif", direction: "rtl" }}>
+      {/* Google Fonts */}
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800;900&display=swap');`}</style>
 
-      {/* Nav */}
-      <div style={S.nav}>
-        <a href="/" style={S.logo}>
-          <div style={S.logoSq}>S</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#e8e8ee" }}>Sub<span style={{ color: "#60a5fa" }}>AI</span></div>
-        </a>
+      {/* ── Nav ── */}
+      <nav style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 100, padding: "16px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(6,6,14,0.8)", backdropFilter: "blur(20px)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 13, color: "#8b8b9e" }}>{user?.email}</span>
-          <button onClick={handleLogout} style={{ ...S.btn, background: "none", border: "1px solid #2f2f3d", color: "#8b8b9e" }}>יציאה</button>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#3b82f6,#818cf8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 900, color: "#fff" }}>S</div>
+          <span style={{ fontSize: 20, fontWeight: 800, letterSpacing: -0.5 }}>Sub<span style={{ color: "#818cf8" }}>AI</span></span>
         </div>
-      </div>
-
-      {/* Welcome */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 800, marginBottom: 4 }}>שלום, {profile?.full_name || "👋"}</h1>
-        <p style={{ color: "#8b8b9e", fontSize: 14 }}>
-          תוכנית: <span style={{ color: "#60a5fa", fontWeight: 600 }}>{planNames[profile?.plan || "free"]}</span>
-          {isCanceled && <span style={{ color: "#f59e0b", marginRight: 8 }}> (מבוטל — פעיל עד {periodEndStr})</span>}
-        </p>
-      </div>
-
-      {/* Usage */}
-      <div style={S.card}>
-        <div style={S.label}>📊 שימוש החודש</div>
-        <div style={{ height: 10, background: "#1a1a28", borderRadius: 5, overflow: "hidden", marginBottom: 10 }}>
-          <div style={{
-            height: "100%", borderRadius: 5, transition: "width 0.5s", width: `${usagePct}%`,
-            background: usagePct > 90 ? "#ef4444" : usagePct > 70 ? "#f59e0b" : "linear-gradient(90deg,#3b82f6,#22c55e)",
-          }} />
+        <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
+          <a href="#features" style={{ color: "#888", textDecoration: "none", fontSize: 14, fontWeight: 500 }}>יתרונות</a>
+          <a href="#pricing" style={{ color: "#888", textDecoration: "none", fontSize: 14, fontWeight: 500 }}>מחירים</a>
+          <a href="/auth" style={{ padding: "10px 24px", borderRadius: 10, background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", textDecoration: "none", fontSize: 14, fontWeight: 700, border: "none" }}>התחל בחינם →</a>
         </div>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-          <span style={{ color: remaining < 5 ? "#ef4444" : "#22c55e", fontWeight: 600 }}>{remaining.toFixed(1)} דקות נותרו</span>
-          <span style={{ color: "#5a5a6e" }}>{(profile?.minutes_used || 0).toFixed(1)} / {profile?.minutes_limit || 0} דקות</span>
-        </div>
-      </div>
+      </nav>
 
-      {/* Subscription Info (for paid users) */}
-      {isPaid && (
-        <div style={S.card}>
-          <div style={S.label}>📅 פרטי מנוי</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 13 }}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: "#8b8b9e" }}>תוכנית</span>
-              <span style={{ fontWeight: 600 }}>{planNames[profile?.plan || "free"]}</span>
+      {/* ── Hero ── */}
+      <section style={{ paddingTop: 160, paddingBottom: 100, textAlign: "center", position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 800, height: 800, borderRadius: "50%", background: "radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%)", pointerEvents: "none" }} />
+        <div style={{ position: "relative", maxWidth: 800, margin: "0 auto", padding: "0 24px", opacity: show ? 1 : 0, transform: show ? "translateY(0)" : "translateY(30px)", transition: "all 0.8s cubic-bezier(0.16,1,0.3,1)" }}>
+          <div style={{ display: "inline-block", padding: "6px 18px", borderRadius: 20, background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.2)", fontSize: 13, fontWeight: 600, color: "#818cf8", marginBottom: 24 }}>✨ מופעל על ידי Whisper AI + Claude</div>
+          <h1 style={{ fontSize: "clamp(36px, 6vw, 64px)", fontWeight: 900, lineHeight: 1.15, marginBottom: 20, letterSpacing: -1 }}>
+            כתוביות AI בעברית<br />
+            <span style={{ background: "linear-gradient(135deg,#3b82f6,#818cf8,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>ישירות בפרמייר פרו</span>
+          </h1>
+          <p style={{ fontSize: 18, color: "#8888aa", maxWidth: 560, margin: "0 auto 36px", lineHeight: 1.8 }}>
+            תמלול אוטומטי מדויק בעברית, ערבית ואנגלית. הכתוביות נכנסות ישירות לטיימליין — בלחיצת כפתור אחת.
+          </p>
+          <div style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap" }}>
+            <a href="/auth" style={{ padding: "16px 40px", borderRadius: 12, background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", textDecoration: "none", fontSize: 17, fontWeight: 800, boxShadow: "0 8px 32px rgba(99,102,241,0.3)", transition: "transform 0.2s" }}>התחל בחינם — 10 דקות מתנה</a>
+            <a href="#pricing" style={{ padding: "16px 32px", borderRadius: 12, background: "rgba(255,255,255,0.06)", color: "#c8c8e0", textDecoration: "none", fontSize: 16, fontWeight: 600, border: "1px solid rgba(255,255,255,0.1)" }}>מחירים ←</a>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Stats ── */}
+      <section style={{ padding: "40px 24px 60px", maxWidth: 900, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "center", gap: 48, flexWrap: "wrap" }}>
+          {[["99%", "דיוק בעברית"], ["< 30 שניות", "זמן תמלול לדקה"], ["100+", "שפות נתמכות"], ["0", "התקנות נוספות"]].map(([val, label], i) => (
+            <div key={i} style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 32, fontWeight: 900, background: "linear-gradient(135deg,#3b82f6,#818cf8)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{val}</div>
+              <div style={{ fontSize: 13, color: "#666680", marginTop: 4 }}>{label}</div>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: "#8b8b9e" }}>סטטוס</span>
-              <span style={{ fontWeight: 600, color: isCanceled ? "#f59e0b" : "#22c55e" }}>
-                {isCanceled ? "מבוטל — פעיל עד סוף התקופה" : "פעיל ✓"}
-              </span>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Features ── */}
+      <section id="features" style={{ padding: "80px 24px", maxWidth: 1000, margin: "0 auto" }}>
+        <h2 style={{ textAlign: "center", fontSize: 36, fontWeight: 900, marginBottom: 12 }}>למה SubAI?</h2>
+        <p style={{ textAlign: "center", color: "#666680", marginBottom: 48, fontSize: 16 }}>הכלי המהיר והמדויק ביותר לכתוביות בעברית</p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
+          {[
+            ["🎯", "תמלול מדויק", "Whisper large-v3 — המודל המתקדם בעולם. תיקון AI אוטומטי עם Claude."],
+            ["⚡", "מהיר", "דקה של אודיו מתומללת ב-10 שניות. ישירות לטיימליין."],
+            ["🔤", "עברית מושלמת", "אופטימיזציה מיוחדת לעברית. פיסוק, ניקוד ודקדוק מתוקנים ב-AI."],
+            ["🎬", "בתוך Premiere", "פלאגין מובנה — בלי לצאת מהתוכנה, בלי ייצוא/יבוא קבצים."],
+            ["📱", "מצב TikTok", "כתוביות מילה-מילה לסרטוני Reels, TikTok ו-Shorts."],
+            ["🔄", "עדכון אוטומטי", "גרסאות חדשות מתעדכנות ישירות מהפלאגין."]
+          ].map(([icon, title, desc], i) => (
+            <div key={i} style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 16, padding: 24, transition: "border-color 0.3s" }}>
+              <div style={{ fontSize: 28, marginBottom: 12 }}>{icon}</div>
+              <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>{title}</div>
+              <div style={{ fontSize: 14, color: "#8888aa", lineHeight: 1.8 }}>{desc}</div>
             </div>
-            {periodEndStr && (
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#8b8b9e" }}>{isCanceled ? "תאריך סיום" : "חידוש הבא"}</span>
-                <span style={{ fontWeight: 600 }}>{periodEndStr}</span>
+          ))}
+        </div>
+      </section>
+
+      {/* ── How it works ── */}
+      <section style={{ padding: "80px 24px", maxWidth: 800, margin: "0 auto" }}>
+        <h2 style={{ textAlign: "center", fontSize: 36, fontWeight: 900, marginBottom: 48 }}>איך זה עובד?</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+          {[
+            ["1", "סמן In/Out", "סמן את הקטע שרוצים לתמלל בטיימליין של Premiere Pro."],
+            ["2", "לחץ תמלל", "SubAI מייצא את האודיו, שולח ל-AI ומקבל תמלול מדויק."],
+            ["3", "Claude מתקן", "AI מתקן שגיאות דקדוק, פיסוק ומילים כפולות אוטומטית."],
+            ["4", "כתוביות בטיימליין", "ה-SRT נכנס ישירות ל-Caption Track — מוכן לעריכה וייצוא."]
+          ].map(([num, title, desc], i) => (
+            <div key={i} style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: "linear-gradient(135deg,#3b82f6,#818cf8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 900, flexShrink: 0 }}>{num}</div>
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>{title}</div>
+                <div style={{ fontSize: 14, color: "#8888aa", lineHeight: 1.7 }}>{desc}</div>
               </div>
-            )}
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: "#8b8b9e" }}>מכסה חודשית</span>
-              <span style={{ fontWeight: 600 }}>{profile?.minutes_limit} דקות</span>
             </div>
-          </div>
-
-          {/* Cancel button */}
-          {!isCanceled && (
-            <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #252530" }}>
-              <button onClick={handleCancel} disabled={canceling}
-                style={{
-                  ...S.btn, width: "100%", background: "none", border: "1px solid #3a3a50",
-                  color: "#8b8b9e", fontSize: 12, opacity: canceling ? 0.5 : 1,
-                }}>
-                {canceling ? "מבטל..." : "ביטול מנוי"}
-              </button>
-              <p style={{ fontSize: 11, color: "#5a5a6e", marginTop: 6, textAlign: "center" }}>
-                הביטול ייכנס לתוקף בסוף תקופת החיוב. עד אז תוכל להמשיך להשתמש בכל הדקות.
-              </p>
-            </div>
-          )}
-
-          {cancelMsg && (
-            <div style={{
-              marginTop: 10, padding: 10, borderRadius: 8, fontSize: 12, textAlign: "center",
-              background: cancelMsg.includes("שגיאה") ? "#ef444415" : "#f59e0b15",
-              color: cancelMsg.includes("שגיאה") ? "#ef4444" : "#f59e0b",
-            }}>{cancelMsg}</div>
-          )}
+          ))}
         </div>
-      )}
+      </section>
 
-      {/* Upgrade (for free users) */}
-      {profile?.plan === "free" && (
-        <div style={S.card}>
-          <div style={S.label}>⚡ שדרג תוכנית</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div style={{ background: "#1a1a28", border: "1px solid #3b82f640", borderRadius: 10, padding: 18, textAlign: "center" }}>
-              <div style={{ fontSize: 18, fontWeight: 800 }}>פרו ⭐</div>
-              <div style={{ fontSize: 28, fontWeight: 800, fontFamily: "var(--font-en)", margin: "6px 0" }}>₪39<span style={{ fontSize: 13, color: "#8b8b9e" }}>/חודש</span></div>
-              <div style={{ fontSize: 12, color: "#8b8b9e", marginBottom: 12 }}>120 דקות / חודש</div>
-              <button onClick={() => handleUpgrade("pro")} disabled={upgrading}
-                style={{ ...S.btn, width: "100%", background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff" }}>
-                {upgrading ? "⏳" : "שדרג לפרו ←"}
-              </button>
+      {/* ── Pricing ── */}
+      <section id="pricing" style={{ padding: "80px 24px", maxWidth: 1000, margin: "0 auto" }}>
+        <h2 style={{ textAlign: "center", fontSize: 36, fontWeight: 900, marginBottom: 12 }}>מחירים פשוטים</h2>
+        <p style={{ textAlign: "center", color: "#666680", marginBottom: 48, fontSize: 16 }}>התחל בחינם, שדרג כשתצטרך</p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20, maxWidth: 860, margin: "0 auto" }}>
+          {/* Free */}
+          <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 20, padding: 32, display: "flex", flexDirection: "column" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#888", marginBottom: 8 }}>חינמי</div>
+            <div style={{ fontSize: 40, fontWeight: 900, marginBottom: 4 }}>₪0</div>
+            <div style={{ fontSize: 13, color: "#666", marginBottom: 24 }}>לנצח</div>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
+              {["10 דקות תמלול", "עברית + אנגלית", "תיקון AI", "כתוביות בטיימליין"].map((f, i) => (
+                <div key={i} style={{ fontSize: 14, color: "#aaa", display: "flex", gap: 8 }}><span style={{ color: "#34d399" }}>✓</span>{f}</div>
+              ))}
             </div>
-            <div style={{ background: "#1a1a28", border: "1px solid #6366f140", borderRadius: 10, padding: 18, textAlign: "center" }}>
-              <div style={{ fontSize: 18, fontWeight: 800 }}>סטודיו 💎</div>
-              <div style={{ fontSize: 28, fontWeight: 800, fontFamily: "var(--font-en)", margin: "6px 0" }}>₪99<span style={{ fontSize: 13, color: "#8b8b9e" }}>/חודש</span></div>
-              <div style={{ fontSize: 12, color: "#8b8b9e", marginBottom: 12 }}>500 דקות / חודש</div>
-              <button onClick={() => handleUpgrade("studio")} disabled={upgrading}
-                style={{ ...S.btn, width: "100%", background: "#222233", color: "#e8e8ee", border: "1px solid #2f2f3d" }}>
-                {upgrading ? "⏳" : "שדרג לסטודיו ←"}
-              </button>
+            <a href="/auth" style={{ display: "block", textAlign: "center", padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#c8c8e0", textDecoration: "none", fontWeight: 700, fontSize: 14 }}>התחל בחינם</a>
+          </div>
+          {/* Pro */}
+          <div style={{ background: "linear-gradient(135deg, rgba(59,130,246,0.08), rgba(99,102,241,0.05))", border: "2px solid rgba(99,102,241,0.3)", borderRadius: 20, padding: 32, position: "relative", display: "flex", flexDirection: "column" }}>
+            <div style={{ position: "absolute", top: -12, right: 24, background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "4px 14px", borderRadius: 20 }}>הכי פופולרי ⭐</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#818cf8", marginBottom: 8 }}>פרו</div>
+            <div style={{ fontSize: 40, fontWeight: 900, marginBottom: 4 }}>₪39<span style={{ fontSize: 16, fontWeight: 500, color: "#666" }}>/חודש</span></div>
+            <div style={{ fontSize: 13, color: "#666", marginBottom: 24 }}>120 דקות לחודש</div>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
+              {["120 דקות תמלול", "100+ שפות", "תיקון AI מתקדם", "מצב TikTok", "תמיכה בצ׳אט"].map((f, i) => (
+                <div key={i} style={{ fontSize: 14, color: "#aaa", display: "flex", gap: 8 }}><span style={{ color: "#34d399" }}>✓</span>{f}</div>
+              ))}
             </div>
+            <a href="/auth" style={{ display: "block", textAlign: "center", padding: 14, borderRadius: 10, background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", textDecoration: "none", fontWeight: 700, fontSize: 14, boxShadow: "0 4px 20px rgba(99,102,241,0.3)" }}>שדרג לפרו</a>
+          </div>
+          {/* Studio */}
+          <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 20, padding: 32, display: "flex", flexDirection: "column" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#c084fc", marginBottom: 8 }}>סטודיו</div>
+            <div style={{ fontSize: 40, fontWeight: 900, marginBottom: 4 }}>₪99<span style={{ fontSize: 16, fontWeight: 500, color: "#666" }}>/חודש</span></div>
+            <div style={{ fontSize: 13, color: "#666", marginBottom: 24 }}>500 דקות לחודש</div>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
+              {["500 דקות תמלול", "100+ שפות", "תיקון AI מתקדם", "מצב TikTok", "תמיכה VIP", "API גישה"].map((f, i) => (
+                <div key={i} style={{ fontSize: 14, color: "#aaa", display: "flex", gap: 8 }}><span style={{ color: "#34d399" }}>✓</span>{f}</div>
+              ))}
+            </div>
+            <a href="/auth" style={{ display: "block", textAlign: "center", padding: 14, borderRadius: 10, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#c8c8e0", textDecoration: "none", fontWeight: 700, fontSize: 14 }}>שדרג לסטודיו</a>
           </div>
         </div>
-      )}
+      </section>
 
-      {/* Download Plugin */}
-      <div style={S.card}>
-        <div style={S.label}>📦 הורד את הפלאגין</div>
-        <p style={{ fontSize: 13, color: "#8b8b9e", marginBottom: 12, lineHeight: 1.8 }}>
-          הורד, חלץ, הרץ את ה-Installer, ופתח Premiere Pro.
-        </p>
-        <a href="/SubAI_Plugin.zip" download
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 8,
-            padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600,
-            background: "#22c55e", color: "#fff", textDecoration: "none",
-          }}>⬇ הורד SubAI Plugin</a>
-      </div>
+      {/* ── CTA ── */}
+      <section style={{ padding: "80px 24px", textAlign: "center" }}>
+        <div style={{ maxWidth: 600, margin: "0 auto", background: "linear-gradient(135deg, rgba(59,130,246,0.1), rgba(99,102,241,0.05))", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 24, padding: "48px 32px" }}>
+          <h2 style={{ fontSize: 28, fontWeight: 900, marginBottom: 12 }}>מוכן לתמלל?</h2>
+          <p style={{ color: "#8888aa", marginBottom: 28, fontSize: 15 }}>10 דקות חינם, בלי כרטיס אשראי</p>
+          <a href="/auth" style={{ display: "inline-block", padding: "16px 48px", borderRadius: 12, background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", textDecoration: "none", fontSize: 17, fontWeight: 800, boxShadow: "0 8px 32px rgba(99,102,241,0.3)" }}>התחל עכשיו בחינם →</a>
+        </div>
+      </section>
 
-      {/* Quick Start */}
-      <div style={{
-        ...S.card, background: "linear-gradient(135deg,rgba(34,197,94,0.05),rgba(59,130,246,0.05))",
-        border: "1px solid rgba(34,197,94,0.2)",
-      }}>
-        <div style={S.label}>🚀 מדריך מהיר</div>
-        <ol style={{ fontSize: 13, color: "#8b8b9e", lineHeight: 2.2, paddingRight: 18 }}>
-          <li>הורד והתקן את הפלאגין</li>
-          <li>פתח Premiere → Window → Extensions → SubAI</li>
-          <li>התחבר עם האימייל והסיסמה שלך</li>
-          <li>פתח רצף, סמן In/Out, לחץ <strong style={{ color: "#e8e8ee" }}>"תמלל עם AI"</strong></li>
-          <li>כתוביות מופיעות בטיימליין ✨</li>
-        </ol>
-      </div>
+      {/* ── Footer ── */}
+      <footer style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "32px 24px", textAlign: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 12 }}>
+          <div style={{ width: 28, height: 28, borderRadius: 8, background: "linear-gradient(135deg,#3b82f6,#818cf8)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 900, color: "#fff" }}>S</div>
+          <span style={{ fontSize: 16, fontWeight: 700 }}>Sub<span style={{ color: "#818cf8" }}>AI</span></span>
+        </div>
+        <div style={{ fontSize: 13, color: "#444460" }}>© 2026 SubAI — כתוביות AI לפרמייר פרו</div>
+      </footer>
     </div>
   );
 }
