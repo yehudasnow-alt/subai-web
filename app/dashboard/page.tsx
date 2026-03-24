@@ -54,7 +54,7 @@ export default function Dashboard() {
   );
 
   const plans: Record<string, string> = { free: "חינמי", pro: "פרו ⭐", studio: "סטודיו 💎" };
-  const planLimits: Record<string, number> = { free: 10, pro: 60, studio: 180 };
+  const planLimits: Record<string, number> = { free: 10, pro: 120, studio: 250 };
   const used = profile?.minutes_used || 0;
   const limit = profile?.minutes_limit || 10;
   const remaining = Math.max(0, limit - used);
@@ -122,8 +122,8 @@ export default function Dashboard() {
             {currentPlan === "pro" ? <div className="current-tag">התוכנית הנוכחית</div> : <div className="popular-tag">מומלץ</div>}
             <div className="price-name">פרו</div>
             <div className="price-amount" style={{ fontSize: 32 }}>₪39<span>/חודש</span></div>
-            <div className="price-period">60 דקות לחודש</div>
-            <ul className="price-features"><li>60 דקות תמלול</li><li>100+ שפות</li><li>תיקון AI מתקדם</li><li>מצב TikTok</li></ul>
+            <div className="price-period">120 דקות לחודש</div>
+            <ul className="price-features"><li>120 דקות תמלול</li><li>100+ שפות</li><li>תיקון AI מתקדם</li><li>מצב TikTok</li></ul>
             {currentPlan === "pro" ?
               <button className="price-btn" onClick={handleCancel} disabled={cancelLoading || isCanceled} style={{ color: "#e55", borderColor: "rgba(239,68,68,0.2)" }}>
                 {isCanceled ? "ביטול בתהליך" : cancelLoading ? "מבטל..." : "בטל מנוי"}
@@ -135,8 +135,8 @@ export default function Dashboard() {
             {currentPlan === "studio" && <div className="current-tag">התוכנית הנוכחית</div>}
             <div className="price-name">סטודיו</div>
             <div className="price-amount" style={{ fontSize: 32 }}>₪99<span>/חודש</span></div>
-            <div className="price-period">180 דקות לחודש</div>
-            <ul className="price-features"><li>180 דקות תמלול</li><li>100+ שפות</li><li>תיקון AI מתקדם</li><li>תמיכה VIP</li></ul>
+            <div className="price-period">250 דקות לחודש</div>
+            <ul className="price-features"><li>250 דקות תמלול</li><li>100+ שפות</li><li>תיקון AI מתקדם</li><li>תמיכה VIP</li></ul>
             {currentPlan === "studio" ?
               <button className="price-btn" onClick={handleCancel} disabled={cancelLoading || isCanceled} style={{ color: "#e55", borderColor: "rgba(239,68,68,0.2)" }}>
                 {isCanceled ? "ביטול בתהליך" : cancelLoading ? "מבטל..." : "בטל מנוי"}
