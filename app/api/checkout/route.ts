@@ -1,96 +1,61 @@
 /**
- * SubAI — Stripe Checkout (FIXED)
- * POST /api/checkout
- * Handles both price IDs and product IDs
+ * SubAI — Checkout Route
+ * GET /api/checkout?plan=pro|studio
+ * Redirects to Stripe Checkout with correct price ID
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { createClient } from "@supabase/supabase-js";
 
-export const maxDuration = 15;
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-04-10" });
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2023-10-16" as any });
 const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-async function getPriceId(idOrPrice: string): Promise<string | null> {
-  if (!idOrPrice) return null;
+const PRICES: Record<string, string> = {
+  pro: process.env.STRIPE_PRICE_PRO_MONTHLY || "",
+  studio: process.env.STRIPE_PRICE_STUDIO_MONTHLY || "",
+};
 
-  // Already a price ID
-  if (idOrPrice.startsWith("price_")) return idOrPrice;
-
-  // It's a product ID — look up the first recurring price
-  if (idOrPrice.startsWith("prod_")) {
-    try {
-      const prices = await stripe.prices.list({ product: idOrPrice, active: true, type: "recurring", limit: 1 });
-      if (prices.data.length > 0) return prices.data[0].id;
-    } catch (e) {
-      console.error("Price lookup error:", e);
-    }
-  }
-
-  return null;
-}
-
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
-    const { plan, period, userId, email } = await req.json();
-
-    if (!plan || !email) {
-      return NextResponse.json({ error: "Missing plan or email" }, { status: 400 });
+    const plan = req.nextUrl.searchParams.get("plan");
+    if (!plan || !PRICES[plan]) {
+      return NextResponse.redirect(new URL("/#pricing", req.url));
     }
 
-    // Get the configured ID (could be price_ or prod_)
-    let configuredId: string | null = null;
-    if (plan === "pro") {
-      configuredId = period === "yearly"
-        ? (process.env.STRIPE_PRICE_PRO_YEARLY || process.env.STRIPE_PRICE_PRO_MONTHLY || null)
-        : (process.env.STRIPE_PRICE_PRO_MONTHLY || null);
-    } else if (plan === "studio") {
-      configuredId = period === "yearly"
-        ? (process.env.STRIPE_PRICE_STUDIO_YEARLY || process.env.STRIPE_PRICE_STUDIO_MONTHLY || null)
-        : (process.env.STRIPE_PRICE_STUDIO_MONTHLY || null);
+    let priceId = PRICES[plan];
+
+    // If someone put a product ID (prod_...) instead of price ID, resolve it
+    if (priceId.startsWith("prod_")) {
+      const prices = await stripe.prices.list({ product: priceId, active: true, limit: 1 });
+      if (prices.data.length > 0) {
+        priceId = prices.data[0].id;
+      } else {
+        return NextResponse.redirect(new URL("/#pricing", req.url));
+      }
     }
 
-    if (!configuredId) {
-      return NextResponse.json({ error: "Plan not configured. Contact support." }, { status: 400 });
-    }
-
-    // Resolve to actual price ID
-    const priceId = await getPriceId(configuredId);
-    if (!priceId) {
-      return NextResponse.json({ error: "Price not found for this plan. Contact support." }, { status: 400 });
-    }
-
-    // Check if user already has a Stripe customer
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("stripe_customer_id")
-      .eq("id", userId)
-      .single();
-
-    let customerId = profile?.stripe_customer_id;
-
-    if (!customerId) {
-      const customer = await stripe.customers.create({ email, metadata: { supabase_id: userId } });
-      customerId = customer.id;
-      await supabase.from("profiles").update({ stripe_customer_id: customerId }).eq("id", userId);
-    }
-
+    // Get current user from cookie/session
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
-      customer: customerId,
       mode: "subscription",
+      payment_method_types: ["card"],
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${req.nextUrl.origin}/dashboard?upgraded=true`,
-      cancel_url: `${req.nextUrl.origin}/dashboard`,
-      metadata: { supabase_id: userId },
-      subscription_data: { metadata: { supabase_id: userId } },
+      cancel_url: `${req.nextUrl.origin}/#pricing`,
+      metadata: { plan },
       allow_promotion_codes: true,
     });
 
-    return NextResponse.json({ url: session.url });
+    if (session.url) {
+      return NextResponse.redirect(session.url);
+    }
+
+    return NextResponse.redirect(new URL("/#pricing", req.url));
   } catch (e: any) {
-    console.error("Checkout error:", e);
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.error("Checkout error:", e.message);
+    return NextResponse.redirect(new URL("/#pricing", req.url));
   }
 }
