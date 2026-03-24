@@ -89,15 +89,15 @@ export default function Home() {
             <div className="popular-tag">הכי פופולרי</div>
             <div className="price-name">פרו</div>
             <div className="price-amount">₪39<span>/חודש</span></div>
-            <div className="price-period">60 דקות לחודש</div>
-            <ul className="price-features"><li>60 דקות תמלול</li><li>100+ שפות</li><li>תיקון AI מתקדם</li><li>מצב TikTok</li><li>תמיכה מהירה</li></ul>
+            <div className="price-period">120 דקות לחודש</div>
+            <ul className="price-features"><li>120 דקות תמלול</li><li>100+ שפות</li><li>תיקון AI מתקדם</li><li>מצב TikTok</li><li>תמיכה מהירה</li></ul>
             <Link href="/api/checkout?plan=pro" className="price-btn primary">שדרג לפרו ←</Link>
           </div>
           <div className="price-card glass-card">
             <div className="price-name">סטודיו</div>
             <div className="price-amount">₪99<span>/חודש</span></div>
-            <div className="price-period">180 דקות לחודש</div>
-            <ul className="price-features"><li>180 דקות תמלול</li><li>100+ שפות</li><li>תיקון AI מתקדם</li><li>מצב TikTok</li><li>תמיכה VIP</li><li>עדיפות בתור</li></ul>
+            <div className="price-period">250 דקות לחודש</div>
+            <ul className="price-features"><li>250 דקות תמלול</li><li>100+ שפות</li><li>תיקון AI מתקדם</li><li>מצב TikTok</li><li>תמיכה VIP</li><li>עדיפות בתור</li></ul>
             <Link href="/api/checkout?plan=studio" className="price-btn">שדרג לסטודיו</Link>
           </div>
         </div>
