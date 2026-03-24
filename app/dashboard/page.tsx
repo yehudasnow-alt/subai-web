@@ -1,289 +1,139 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-type Profile = {
-  id: string; email: string; full_name: string;
-  plan: string; minutes_used: number; minutes_limit: number;
-  api_key: string; subscription_status: string; period_end: string | null;
-};
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 
 export default function Dashboard() {
   const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
-  const [upgrading, setUpgrading] = useState(false);
-  const [canceling, setCanceling] = useState(false);
-  const [cancelMsg, setCancelMsg] = useState("");
-  const [showUpgraded, setShowUpgraded] = useState(false);
 
   useEffect(() => {
-    // Check for upgrade success
-    if (window.location.search.includes("upgraded=true")) {
-      setShowUpgraded(true);
-      window.history.replaceState({}, "", "/dashboard");
-      setTimeout(() => setShowUpgraded(false), 5000);
-    }
-    // Check for plugin session (from Google OAuth redirect)
     const params = new URLSearchParams(window.location.search);
     const ps = params.get("plugin_session");
-    if (ps) {
-      supabase.auth.getUser().then(({ data }) => {
-        if (data.user) {
-          fetch("/api/auth/plugin-session", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "store", session_id: ps, user_id: data.user.id }),
-          }).then(() => {
-            // Show message and clean URL
-            setShowUpgraded(false);
-            alert("התחברת בהצלחה! חזור ל-Premiere Pro — הפלאגין יזהה אוטומטית.");
-            window.history.replaceState({}, "", "/dashboard");
-          });
-        }
-      });
-    }
-    loadUser();
+
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (!data.user) { window.location.href = "/auth"; return; }
+      setUser(data.user);
+      if (ps) {
+        await fetch("/api/auth/plugin-session", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "store", session_id: ps, user_id: data.user.id }) });
+        window.history.replaceState({}, "", "/dashboard");
+      }
+      const { data: p } = await supabase.from("profiles").select("*").eq("id", data.user.id).single();
+      setProfile(p); setLoading(false);
+    });
   }, []);
 
-  async function loadUser() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { window.location.href = "/auth"; return; }
-    setUser(user);
-    const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single();
-    setProfile(data);
-    setLoading(false);
-  }
-
-  async function copyKey() {
-    if (!profile?.api_key) return;
-    await navigator.clipboard.writeText(profile.api_key);
-    setCopied(true); setTimeout(() => setCopied(false), 2000);
-  }
-
-  async function handleUpgrade(plan: string) {
-    if (!user || !profile) return;
-    setUpgrading(true);
-    try {
-      const res = await fetch("/api/checkout", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan, period: "monthly", userId: user.id, email: user.email }),
-      });
-      const data = await res.json();
-      if (data.url) window.location.href = data.url;
-      else alert(data.error || "שגיאה");
-    } catch (e) { alert("שגיאת חיבור"); }
-    setUpgrading(false);
-  }
-
-  async function handleCancel() {
-    if (!user || !confirm("האם אתה בטוח? המנוי ישאר פעיל עד סוף תקופת החיוב.")) return;
-    setCanceling(true); setCancelMsg("");
-    try {
-      const res = await fetch("/api/cancel-subscription", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setCancelMsg(`המנוי יבוטל ב-${data.cancel_at}. עד אז תוכל להמשיך להשתמש.`);
-        loadUser(); // Refresh
-      } else {
-        setCancelMsg(data.error || "שגיאה בביטול");
-      }
-    } catch (e) { setCancelMsg("שגיאת חיבור"); }
-    setCanceling(false);
-  }
-
-  async function handleLogout() {
-    await supabase.auth.signOut();
-    window.location.href = "/";
-  }
+  async function handleLogout() { await supabase.auth.signOut(); window.location.href = "/"; }
 
   if (loading) return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ color: "#8b8b9e" }}>⏳ טוען...</div>
+    <div className="page-wrap">
+      <div className="mesh-bg"><div className="blob b1" /><div className="blob b2" /></div>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", zIndex: 1 }}>
+        <div className="glass-card" style={{ padding: 40, textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 12 }}>⏳</div>
+          <div style={{ color: "#888" }}>טוען...</div>
+        </div>
+      </div>
     </div>
   );
 
-  const remaining = Math.max(0, (profile?.minutes_limit || 0) - (profile?.minutes_used || 0));
-  const usagePct = profile?.minutes_limit ? Math.min(100, ((profile.minutes_used || 0) / profile.minutes_limit) * 100) : 0;
-  const planNames: Record<string, string> = { free: "חינמי 🆓", pro: "פרו ⭐", studio: "סטודיו 💎" };
-  const isCanceled = profile?.subscription_status === "canceled";
-  const isPaid = profile?.plan === "pro" || profile?.plan === "studio";
-
-  // Format renewal/cancel date
-  const periodEnd = profile?.period_end ? new Date(profile.period_end) : null;
-  const periodEndStr = periodEnd ? periodEnd.toLocaleDateString("he-IL", { day: "numeric", month: "long", year: "numeric" }) : null;
-
-  const S: Record<string, React.CSSProperties> = {
-    page: { minHeight: "100vh", padding: 24, maxWidth: 700, margin: "0 auto" },
-    nav: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 32, paddingBottom: 16, borderBottom: "1px solid #252530" },
-    logo: { display: "flex", alignItems: "center", gap: 10, textDecoration: "none" },
-    logoSq: { width: 32, height: 32, borderRadius: 9, background: "linear-gradient(135deg,#3b82f6,#6366f1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: "#fff" },
-    card: { background: "#111118", border: "1px solid #252530", borderRadius: 14, padding: 24, marginBottom: 16 },
-    label: { fontSize: 11, fontWeight: 700, color: "#5a5a6e", textTransform: "uppercase" as const, letterSpacing: "0.5px", marginBottom: 12 },
-    btn: { padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "var(--font-he)", transition: "all 0.2s", border: "none" },
-  };
+  const plans: Record<string, string> = { free: "חינמי", pro: "פרו ⭐", studio: "סטודיו 💎" };
+  const used = profile?.minutes_used || 0;
+  const limit = profile?.minutes_limit || 10;
+  const remaining = Math.max(0, limit - used);
+  const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+  const displayName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email?.split("@")[0] || "";
+  const initials = displayName ? displayName.charAt(0).toUpperCase() : "U";
 
   return (
-    <div style={S.page}>
-      {/* Upgrade success banner */}
-      {showUpgraded && (
-        <div style={{
-          background: "#22c55e15", border: "1px solid #22c55e30", borderRadius: 12,
-          padding: "14px 20px", marginBottom: 16, textAlign: "center", fontSize: 14, color: "#22c55e",
-        }}>🎉 המנוי שודרג בהצלחה! תוכנית חדשה פעילה.</div>
-      )}
-
-      {/* Nav */}
-      <div style={S.nav}>
-        <a href="/" style={S.logo}>
-          <div style={S.logoSq}>S</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#e8e8ee" }}>Sub<span style={{ color: "#60a5fa" }}>AI</span></div>
-        </a>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 13, color: "#8b8b9e" }}>{user?.email}</span>
-          <button onClick={handleLogout} style={{ ...S.btn, background: "none", border: "1px solid #2f2f3d", color: "#8b8b9e" }}>יציאה</button>
-        </div>
-      </div>
-
-      {/* Welcome */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 800, marginBottom: 4 }}>שלום, {profile?.full_name || "👋"}</h1>
-        <p style={{ color: "#8b8b9e", fontSize: 14 }}>
-          תוכנית: <span style={{ color: "#60a5fa", fontWeight: 600 }}>{planNames[profile?.plan || "free"]}</span>
-          {isCanceled && <span style={{ color: "#f59e0b", marginRight: 8 }}> (מבוטל — פעיל עד {periodEndStr})</span>}
-        </p>
-      </div>
-
-      {/* Usage */}
-      <div style={S.card}>
-        <div style={S.label}>📊 שימוש החודש</div>
-        <div style={{ height: 10, background: "#1a1a28", borderRadius: 5, overflow: "hidden", marginBottom: 10 }}>
-          <div style={{
-            height: "100%", borderRadius: 5, transition: "width 0.5s", width: `${usagePct}%`,
-            background: usagePct > 90 ? "#ef4444" : usagePct > 70 ? "#f59e0b" : "linear-gradient(90deg,#3b82f6,#22c55e)",
-          }} />
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-          <span style={{ color: remaining < 5 ? "#ef4444" : "#22c55e", fontWeight: 600 }}>{remaining.toFixed(1)} דקות נותרו</span>
-          <span style={{ color: "#5a5a6e" }}>{(profile?.minutes_used || 0).toFixed(1)} / {profile?.minutes_limit || 0} דקות</span>
-        </div>
-      </div>
-
-      {/* Subscription Info (for paid users) */}
-      {isPaid && (
-        <div style={S.card}>
-          <div style={S.label}>📅 פרטי מנוי</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 13 }}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: "#8b8b9e" }}>תוכנית</span>
-              <span style={{ fontWeight: 600 }}>{planNames[profile?.plan || "free"]}</span>
+    <div className="page-wrap">
+      <div className="mesh-bg"><div className="blob b1" /><div className="blob b2" /><div className="blob b3" /></div>
+      <div className="dash-wrap">
+        {/* Nav */}
+        <nav className="dash-nav">
+          <Link href="/" className="nav-logo">
+            <div className="logo-icon" style={{ width: 30, height: 30, fontSize: 14, borderRadius: 8 }}>S</div>
+            <span className="logo-text" style={{ fontSize: 17 }}>Sub<span>AI</span></span>
+          </Link>
+          <div className="dash-user">
+            <div>
+              <div className="dash-name">{displayName}</div>
+              <div className="dash-email">{user?.email}</div>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: "#8b8b9e" }}>סטטוס</span>
-              <span style={{ fontWeight: 600, color: isCanceled ? "#f59e0b" : "#22c55e" }}>
-                {isCanceled ? "מבוטל — פעיל עד סוף התקופה" : "פעיל ✓"}
-              </span>
+            <div className="dash-avatar">{initials}</div>
+          </div>
+        </nav>
+
+        <div className="dash-content">
+          <h1 className="dash-h1">שלום, {displayName} 👋</h1>
+
+          {/* Plan & Usage */}
+          <div className="plan-card glass-card" style={{ borderRadius: 24 }}>
+            <div className="plan-row">
+              <div>
+                <div className="plan-label">התוכנית שלך</div>
+                <div className="plan-val">{plans[profile?.plan] || "חינמי"}</div>
+              </div>
+              <div style={{ textAlign: "left" }}>
+                <div className="plan-label">דקות נותרות</div>
+                <div className="plan-val green">{remaining.toFixed(0)}</div>
+              </div>
             </div>
-            {periodEndStr && (
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#8b8b9e" }}>{isCanceled ? "תאריך סיום" : "חידוש הבא"}</span>
-                <span style={{ fontWeight: 600 }}>{periodEndStr}</span>
+            <div className="usage-track">
+              <div className={`usage-fill ${pct > 80 ? "warn" : "ok"}`} style={{ width: pct + "%" }} />
+            </div>
+            <div className="usage-meta">
+              <span>{used.toFixed(1)} נוצלו</span>
+              <span>{limit} סה״כ</span>
+            </div>
+          </div>
+
+          {/* Action Cards */}
+          <div className="action-grid">
+            <a href="/SubAI_Setup.exe" className="action-card glass-card" style={{ borderRadius: 20, textDecoration: "none" }}>
+              <div className="ac-icon">⬇️</div>
+              <div className="ac-title">הורד פלאגין</div>
+              <div className="ac-desc">התקנה ל-Adobe Premiere Pro</div>
+            </a>
+            {profile?.plan === "free" ? (
+              <Link href="/#pricing" className="action-card glass-card" style={{ borderRadius: 20, textDecoration: "none", borderColor: "rgba(99,102,241,0.2)", background: "rgba(99,102,241,0.04)" }}>
+                <div className="ac-icon">⭐</div>
+                <div className="ac-title">שדרג לפרו</div>
+                <div className="ac-desc" style={{ color: "#6366f1" }}>₪39/חודש — 120 דקות</div>
+              </Link>
+            ) : (
+              <div className="action-card glass-card" style={{ borderRadius: 20 }}>
+                <div className="ac-icon">📋</div>
+                <div className="ac-title">פרטי מנוי</div>
+                <div className="ac-desc">
+                  {profile?.subscription_status === "active" ? "פעיל" : profile?.subscription_status || "—"}
+                  {profile?.current_period_end && ` · חידוש: ${new Date(profile.current_period_end).toLocaleDateString("he-IL")}`}
+                </div>
               </div>
             )}
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ color: "#8b8b9e" }}>מכסה חודשית</span>
-              <span style={{ fontWeight: 600 }}>{profile?.minutes_limit} דקות</span>
-            </div>
           </div>
 
-          {/* Cancel button */}
-          {!isCanceled && (
-            <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #252530" }}>
-              <button onClick={handleCancel} disabled={canceling}
-                style={{
-                  ...S.btn, width: "100%", background: "none", border: "1px solid #3a3a50",
-                  color: "#8b8b9e", fontSize: 12, opacity: canceling ? 0.5 : 1,
-                }}>
-                {canceling ? "מבטל..." : "ביטול מנוי"}
-              </button>
-              <p style={{ fontSize: 11, color: "#5a5a6e", marginTop: 6, textAlign: "center" }}>
-                הביטול ייכנס לתוקף בסוף תקופת החיוב. עד אז תוכל להמשיך להשתמש בכל הדקות.
-              </p>
-            </div>
-          )}
+          {/* Quick Guide */}
+          <div className="guide-card glass-card" style={{ borderRadius: 20 }}>
+            <div className="g-title">🚀 איך להתחיל</div>
+            {["הורד והתקן את הפלאגין (כפתור למעלה)", "פתח Premiere Pro → Window → Extensions → SubAI", "התחבר עם Google בפלאגין", "סמן In/Out על הקטע → לחץ ״תמלל עם AI״"].map((s, i) => (
+              <div key={i} className="guide-step">
+                <div className="guide-num">{i + 1}</div>
+                <span>{s}</span>
+              </div>
+            ))}
+          </div>
 
-          {cancelMsg && (
-            <div style={{
-              marginTop: 10, padding: 10, borderRadius: 8, fontSize: 12, textAlign: "center",
-              background: cancelMsg.includes("שגיאה") ? "#ef444415" : "#f59e0b15",
-              color: cancelMsg.includes("שגיאה") ? "#ef4444" : "#f59e0b",
-            }}>{cancelMsg}</div>
-          )}
-        </div>
-      )}
-
-      {/* Upgrade (for free users) */}
-      {profile?.plan === "free" && (
-        <div style={S.card}>
-          <div style={S.label}>⚡ שדרג תוכנית</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div style={{ background: "#1a1a28", border: "1px solid #3b82f640", borderRadius: 10, padding: 18, textAlign: "center" }}>
-              <div style={{ fontSize: 18, fontWeight: 800 }}>פרו ⭐</div>
-              <div style={{ fontSize: 28, fontWeight: 800, fontFamily: "var(--font-en)", margin: "6px 0" }}>₪39<span style={{ fontSize: 13, color: "#8b8b9e" }}>/חודש</span></div>
-              <div style={{ fontSize: 12, color: "#8b8b9e", marginBottom: 12 }}>120 דקות / חודש</div>
-              <button onClick={() => handleUpgrade("pro")} disabled={upgrading}
-                style={{ ...S.btn, width: "100%", background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff" }}>
-                {upgrading ? "⏳" : "שדרג לפרו ←"}
-              </button>
-            </div>
-            <div style={{ background: "#1a1a28", border: "1px solid #6366f140", borderRadius: 10, padding: 18, textAlign: "center" }}>
-              <div style={{ fontSize: 18, fontWeight: 800 }}>סטודיו 💎</div>
-              <div style={{ fontSize: 28, fontWeight: 800, fontFamily: "var(--font-en)", margin: "6px 0" }}>₪99<span style={{ fontSize: 13, color: "#8b8b9e" }}>/חודש</span></div>
-              <div style={{ fontSize: 12, color: "#8b8b9e", marginBottom: 12 }}>500 דקות / חודש</div>
-              <button onClick={() => handleUpgrade("studio")} disabled={upgrading}
-                style={{ ...S.btn, width: "100%", background: "#222233", color: "#e8e8ee", border: "1px solid #2f2f3d" }}>
-                {upgrading ? "⏳" : "שדרג לסטודיו ←"}
-              </button>
-            </div>
+          {/* Navigation back */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 24, paddingTop: 16, borderTop: "1px solid rgba(0,0,0,0.05)" }}>
+            <Link href="/" style={{ fontSize: 13, color: "#888" }}>← חזרה לדף הראשי</Link>
+            <button className="btn-logout" onClick={handleLogout}>התנתק</button>
           </div>
         </div>
-      )}
-
-      {/* Download Plugin */}
-      <div style={S.card}>
-        <div style={S.label}>📦 הורד את הפלאגין</div>
-        <p style={{ fontSize: 13, color: "#8b8b9e", marginBottom: 12, lineHeight: 1.8 }}>
-          הורד, חלץ, הרץ את ה-Installer, ופתח Premiere Pro.
-        </p>
-        <a href="/SubAI_Plugin.zip" download
-          style={{
-            display: "inline-flex", alignItems: "center", gap: 8,
-            padding: "10px 20px", borderRadius: 8, fontSize: 13, fontWeight: 600,
-            background: "#22c55e", color: "#fff", textDecoration: "none",
-          }}>⬇ הורד SubAI Plugin</a>
-      </div>
-
-      {/* Quick Start */}
-      <div style={{
-        ...S.card, background: "linear-gradient(135deg,rgba(34,197,94,0.05),rgba(59,130,246,0.05))",
-        border: "1px solid rgba(34,197,94,0.2)",
-      }}>
-        <div style={S.label}>🚀 מדריך מהיר</div>
-        <ol style={{ fontSize: 13, color: "#8b8b9e", lineHeight: 2.2, paddingRight: 18 }}>
-          <li>הורד והתקן את הפלאגין</li>
-          <li>פתח Premiere → Window → Extensions → SubAI</li>
-          <li>התחבר עם האימייל והסיסמה שלך</li>
-          <li>פתח רצף, סמן In/Out, לחץ <strong style={{ color: "#e8e8ee" }}>"תמלל עם AI"</strong></li>
-          <li>כתוביות מופיעות בטיימליין ✨</li>
-        </ol>
       </div>
     </div>
   );
