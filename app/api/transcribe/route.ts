@@ -1,12 +1,9 @@
 /**
- * SubAI — Transcription API v4.0
- * POST /api/transcribe
- * 
- * Improved:
- * - AI correction reads full context first, only fixes clear typos
- * - Does NOT replace real words/concepts, only spelling errors
- * - Fixes sentence boundaries (words that belong to previous/next sentence)
- * - Word splitting supports 1-6 words per subtitle with proportional timing
+ * SubAI — Transcription API v5.0
+ * - Async RunPod (run + poll) — no timeouts ever
+ * - Surgical Claude correction — minimal intervention, no hallucinations
+ * - Word-level timestamps from Whisper for precise TikTok splitting
+ * - Integrity check: if Claude changes segment count, fallback to original
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -14,7 +11,7 @@ import { createClient } from "@supabase/supabase-js";
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -34,11 +31,10 @@ function err(message: string, status: number = 400) {
 }
 
 async function validateApiKey(apiKey: string) {
-  const { data, error } = await supabase.from("profiles")
+  const { data } = await supabase.from("profiles")
     .select("id, email, plan, minutes_used, minutes_limit, subscription_status")
     .eq("api_key", apiKey).single();
-  if (error || !data) return null;
-  return data;
+  return data || null;
 }
 
 async function logUsage(userId: string, audioDuration: number, lang: string, model: string,
@@ -56,77 +52,85 @@ async function deductMinutes(userId: string, minutes: number) {
   try {
     const { error } = await supabase.rpc("increment_usage", { p_user_id: userId, p_minutes: minutes });
     if (!error) return;
-  } catch (e) {}
+  } catch {}
   try {
     const { data } = await supabase.from("profiles").select("minutes_used").eq("id", userId).single();
     if (data) await supabase.from("profiles").update({ minutes_used: (data.minutes_used || 0) + minutes }).eq("id", userId);
-  } catch (e) {}
+  } catch {}
 }
 
 // ══════════════════════════════════════════════════════════════
-// AI TEXT CORRECTION — Context-aware, conservative, precise
+// AI CORRECTION — Surgical, minimal intervention
 // ══════════════════════════════════════════════════════════════
 
 interface Segment { start: number; end: number; text: string; }
+interface Word { start: number; end: number; word: string; probability?: number; }
 
 async function aiCorrectSegments(
-  segments: Segment[], language: string, captionStyle: string, wordsPerGroup: number
+  segments: Segment[], language: string, captionStyle: string, wordsPerGroup: number, words: Word[]
 ): Promise<{ segments: Segment[]; method: string }> {
   if (!ANTHROPIC_API_KEY || segments.length === 0) {
-    return { segments: applyWordSplit(segments, captionStyle, wordsPerGroup), method: "none" };
+    return { segments: applyWordSplit(segments, captionStyle, wordsPerGroup, words), method: "none" };
   }
 
   try {
-    // Build full text with markers
     const fullText = segments.map((s, i) =>
       `[${i}|${s.start.toFixed(2)}-${s.end.toFixed(2)}] ${s.text}`
     ).join("\n");
 
     const langName = language === "he" ? "עברית" : language === "ar" ? "ערבית" : "English";
 
-    const systemPrompt = `You are a professional subtitle proofreader for ${langName} content.
-Your job: fix ONLY clear errors in AI-transcribed text. Be extremely conservative.
+    // ── SURGICAL PROMPT — minimal intervention, zero hallucinations ──
+    const systemPrompt = `You are a precision-focused subtitle editor for ${langName}.
+Your goal: fix ONLY what Whisper got wrong. Preserve the speaker's exact words.
 
-STEP 1 — READ ALL TEXT FIRST:
-Read every segment from start to finish. Understand the topic, context, and speaking style before making any changes.
+STEP 1 — READ EVERYTHING FIRST:
+Read all segments start to finish. Understand the topic, names, technical terms, and speaking style before touching anything.
 
-STEP 2 — FIX ONLY THESE (and nothing else):
+STEP 2 — FIX ONLY THESE (nothing else):
 
-A) CLEAR SPELLING ERRORS:
-   - If Whisper wrote "עבוק" but context shows it should be "עמוק" → fix it
-   - If Whisper wrote "להתפלל" but context is about cooking and it should be "להתפלל" → DON'T touch it (might be correct)
-   - Rule: Only fix if you are 95%+ sure from context what the correct word is
-   - If unsure → leave the original word as-is
+A) PHONETIC TRANSCRIPTION ERRORS:
+   Fix words Whisper misheard due to similar sounds.
+   Hebrew examples: swapping א/ע, ה/ח, כ/ק, ט/ת, ס/ש, ב/פ
+   Example: "עבוק" → "עמוק" (if context confirms depth)
+   Example: "להתכלל" → "להתפלל" (ONLY if context is prayer, NOT cooking)
+   Rule: Fix ONLY if you are 99%+ certain from surrounding context.
 
 B) PUNCTUATION:
-   - Add missing periods at sentence ends
-   - Add missing commas where natural pauses occur
-   - Add question marks where questions are asked
-   - Fix double/triple punctuation to single
+   Add periods at clear sentence ends.
+   Add commas at natural pauses.
+   Add question marks for questions.
+   Fix multiple punctuation to single (... → .)
 
 C) SENTENCE BOUNDARIES:
-   - If a word clearly belongs to the PREVIOUS sentence but Whisper put it at the start of the next segment → move it back
-   - If a sentence starts mid-thought in one segment and the beginning is at the end of the previous segment → merge them correctly
-   - Each subtitle segment should start and end at natural sentence/clause boundaries
+   If a word belongs to the previous segment (sentence started there), move it back.
+   If a segment starts mid-sentence, merge the orphan word to where it belongs.
+   Each segment should start and end at natural speech boundaries.
 
-D) REMOVE HALLUCINATIONS:
-   - Remove exact duplicate phrases within a segment
-   - Remove segments that are clearly not speech (music descriptions, [applause], etc.)
+D) REMOVE WHISPER ARTIFACTS:
+   Delete exact duplicate phrases within a segment.
+   Remove [music], [applause] type annotations.
+   Remove segments that repeat the previous segment verbatim.
 
-STEP 3 — DO NOT DO ANY OF THESE:
-- Do NOT replace real words with synonyms
-- Do NOT rewrite sentences in "better" Hebrew
-- Do NOT add words that weren't spoken
-- Do NOT remove words that were spoken (even filler words like "אמ", "אה" — keep them)
-- Do NOT change names, places, technical terms, or domain-specific words
-- Do NOT change the meaning even slightly
-- When in doubt — DO NOT CHANGE
+E) MISSING WORDS (99% certainty only):
+   If a sentence clearly lacks one word to make sense (e.g., "אני לבית" → "אני הולך לבית"),
+   and you are 99% sure from context, add it.
 
-FORMAT:
-Return ONLY the corrected segments in the exact same format:
-[index|start-end] corrected text
+STEP 3 — ABSOLUTE RULES (violating these = failure):
+- NO REWRITING: Do not improve grammar or style. Awkward speech stays awkward.
+- NO SYNONYMS: Never replace a word with a similar/better word.
+- PRESERVE SLANG: Keep "כאילו", "אממ", "אז", stuttering, filler words.
+- PRESERVE NAMES: Do not change names, brands, places, technical terms.
+- NO ADDITIONS: Do not add words that weren't spoken (except rule E).
+- NO DELETIONS: Do not remove words that were spoken.
+- WHEN IN DOUBT: Leave the original text unchanged. Silence > hallucination.
 
-Every input line must have a corresponding output line. Do not skip or merge lines.`;
+VERIFICATION:
+After correcting, check: did I add any word/fact that wasn't in the input? If yes, delete it.
+Every input line MUST have exactly one output line. Do not merge or skip lines.
+
+FORMAT: Return ONLY corrected segments, one per line:
+[index|start-end] corrected text`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -145,7 +149,7 @@ Every input line must have a corresponding output line. Do not skip or merge lin
 
     if (!response.ok) {
       console.error("Claude API error:", response.status);
-      return { segments: applyWordSplit(segments, captionStyle, wordsPerGroup), method: "fallback" };
+      return { segments: applyWordSplit(segments, captionStyle, wordsPerGroup, words), method: "api_fallback" };
     }
 
     const result = await response.json();
@@ -160,89 +164,98 @@ Every input line must have a corresponding output line. Do not skip or merge lin
       }
     }
 
-    if (corrected.length > 0) {
-      return { segments: applyWordSplit(corrected, captionStyle, wordsPerGroup), method: "claude" };
+    // ── INTEGRITY CHECK — if Claude changed segment count, fallback ──
+    if (corrected.length === 0) {
+      console.warn("Claude returned empty — using original");
+      return { segments: applyWordSplit(segments, captionStyle, wordsPerGroup, words), method: "empty_fallback" };
     }
-    return { segments: applyWordSplit(segments, captionStyle, wordsPerGroup), method: "parse_fallback" };
+
+    if (Math.abs(corrected.length - segments.length) > segments.length * 0.2) {
+      // Claude added/removed more than 20% of segments — suspicious
+      console.warn(`Claude altered segment count: ${segments.length} → ${corrected.length} — using original`);
+      return { segments: applyWordSplit(segments, captionStyle, wordsPerGroup, words), method: "integrity_fallback" };
+    }
+
+    return { segments: applyWordSplit(corrected, captionStyle, wordsPerGroup, words), method: "claude" };
   } catch (e) {
     console.error("AI correction error:", e);
-    return { segments: applyWordSplit(segments, captionStyle, wordsPerGroup), method: "error_fallback" };
+    return { segments: applyWordSplit(segments, captionStyle, wordsPerGroup, words), method: "error_fallback" };
   }
 }
 
 // ══════════════════════════════════════════════════════════════
-// WORD SPLITTING — Configurable 1-6 words with precise timing
+// WORD SPLITTING — Uses word-level timestamps when available
 // ══════════════════════════════════════════════════════════════
 
-function applyWordSplit(segments: Segment[], style: string, wordsPerGroup: number): Segment[] {
-  // style "auto" or "sentence" = no word splitting
+function applyWordSplit(segments: Segment[], style: string, wordsPerGroup: number, whisperWords: Word[]): Segment[] {
   if (!style || style === "auto" || style === "sentence") return segments;
 
-  // Determine how many words per subtitle
   let groupSize = wordsPerGroup || 1;
-  if (style === "word1") groupSize = 1;
-  else if (style === "word2") groupSize = 2;
-  else if (style === "word3") groupSize = 3;
-  else if (style === "word4") groupSize = 4;
-  else if (style === "word5") groupSize = 5;
-  else if (style === "word6") groupSize = 6;
-  else if (style.startsWith("word")) {
-    const n = parseInt(style.replace("word", ""));
-    if (n >= 1 && n <= 6) groupSize = n;
+  const styleNum = parseInt(style.replace("word", ""));
+  if (styleNum >= 1 && styleNum <= 6) groupSize = styleNum;
+
+  // If we have word-level timestamps from Whisper, use them for precise timing
+  if (whisperWords && whisperWords.length > 0) {
+    return splitFromWordTimestamps(whisperWords, groupSize);
   }
 
+  // Fallback: split proportionally by character weight
+  return splitProportionally(segments, groupSize);
+}
+
+function splitFromWordTimestamps(words: Word[], groupSize: number): Segment[] {
+  const result: Segment[] = [];
+
+  for (let i = 0; i < words.length; i += groupSize) {
+    const group = words.slice(i, i + groupSize);
+    if (group.length === 0) continue;
+
+    const text = group.map(w => w.word).join(" ");
+    const start = group[0].start;
+    const end = group[group.length - 1].end;
+
+    result.push({
+      start: +start.toFixed(3),
+      end: +Math.max(end, start + 0.1).toFixed(3),
+      text,
+    });
+  }
+
+  return result;
+}
+
+function splitProportionally(segments: Segment[], groupSize: number): Segment[] {
   const result: Segment[] = [];
 
   for (const seg of segments) {
     const duration = seg.end - seg.start;
     const words = seg.text.split(/\s+/).filter(w => w.length > 0);
-
     if (words.length === 0) continue;
-    if (words.length <= groupSize) {
-      // Fewer words than group size — keep as single subtitle
-      result.push(seg);
-      continue;
-    }
+    if (words.length <= groupSize) { result.push(seg); continue; }
 
-    // Calculate timing proportionally based on character count per word
-    // Longer words take more time to say than shorter ones
-    const wordLengths = words.map(w => {
-      // Hebrew/Arabic characters weigh slightly more (more complex pronunciation)
-      const hebrewChars = (w.match(/[\u0590-\u05FF\u0600-\u06FF]/g) || []).length;
-      const otherChars = w.length - hebrewChars;
-      return hebrewChars * 1.2 + otherChars;
+    // Hebrew chars weigh 1.4x (more complex pronunciation)
+    const wordWeights = words.map(w => {
+      const heb = (w.match(/[\u0590-\u05FF\u0600-\u06FF]/g) || []).length;
+      return heb * 1.4 + (w.length - heb);
     });
-    const totalWeight = wordLengths.reduce((sum, l) => sum + l, 0);
+    const totalWeight = wordWeights.reduce((s, w) => s + w, 0);
 
-    // Build word groups
-    let currentTime = seg.start;
-
+    let t = seg.start;
     for (let i = 0; i < words.length; i += groupSize) {
-      const groupWords = words.slice(i, i + groupSize);
-      const groupIndices = [];
-      for (let j = i; j < Math.min(i + groupSize, words.length); j++) {
-        groupIndices.push(j);
-      }
+      const group = words.slice(i, i + groupSize);
+      const indices = Array.from({ length: group.length }, (_, j) => i + j);
+      const groupWeight = indices.reduce((s, idx) => s + wordWeights[idx], 0);
+      const groupDur = duration * (groupWeight / totalWeight);
 
-      // Calculate this group's duration based on its character weight
-      const groupWeight = groupIndices.reduce((sum, idx) => sum + wordLengths[idx], 0);
-      const groupDuration = duration * (groupWeight / totalWeight);
-
-      // Add small padding between groups for natural feel (20ms)
-      const padding = 0.02;
-      const startTime = currentTime;
-      const endTime = currentTime + groupDuration - padding;
-
+      // TikTok: zero padding for snappy word appearance
       result.push({
-        start: +startTime.toFixed(3),
-        end: +Math.max(endTime, startTime + 0.1).toFixed(3), // minimum 100ms
-        text: groupWords.join(" "),
+        start: +t.toFixed(3),
+        end: +Math.max(t + groupDur, t + 0.1).toFixed(3),
+        text: group.join(" "),
       });
-
-      currentTime += groupDuration;
+      t += groupDur;
     }
   }
-
   return result;
 }
 
@@ -250,7 +263,7 @@ function applyWordSplit(segments: Segment[], style: string, wordsPerGroup: numbe
 // SRT BUILDER
 // ══════════════════════════════════════════════════════════════
 
-function buildSrt(segments: Segment[], offset: number = 0): string {
+function buildSrt(segments: Segment[]): string {
   const ts = (s: number) => {
     s = Math.max(0, s);
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sc = Math.floor(s % 60),
@@ -260,7 +273,7 @@ function buildSrt(segments: Segment[], offset: number = 0): string {
   return segments.map((seg, i) => {
     const text = seg.text.trim();
     if (!text) return "";
-    return `${i + 1}\n${ts(seg.start + offset)} --> ${ts(seg.end + offset)}\n${text}\n`;
+    return `${i + 1}\n${ts(seg.start)} --> ${ts(seg.end)}\n${text}\n`;
   }).filter(Boolean).join("\n");
 }
 
@@ -283,10 +296,10 @@ export async function POST(req: NextRequest) {
     // ── get_upload_url ──
     if (action === "get_upload_url") {
       const fileKey = `audio/${user.id}/${Date.now()}.mp3`;
-      const putCommand = new PutObjectCommand({ Bucket: S3_BUCKET, Key: fileKey, ContentType: "audio/mpeg" });
-      const uploadUrl = await getSignedUrl(s3, putCommand, { expiresIn: 300 });
-      const getCommand = new GetObjectCommand({ Bucket: S3_BUCKET, Key: fileKey });
-      const downloadUrl = await getSignedUrl(s3, getCommand, { expiresIn: 3600 });
+      const putCmd = new PutObjectCommand({ Bucket: S3_BUCKET, Key: fileKey, ContentType: "audio/mpeg" });
+      const uploadUrl = await getSignedUrl(s3, putCmd, { expiresIn: 300 });
+      const getCmd = new GetObjectCommand({ Bucket: S3_BUCKET, Key: fileKey });
+      const downloadUrl = await getSignedUrl(s3, getCmd, { expiresIn: 3600 });
       return NextResponse.json({ upload_url: uploadUrl, download_url: downloadUrl, file_key: fileKey, remaining_minutes: remaining });
     }
 
@@ -294,15 +307,12 @@ export async function POST(req: NextRequest) {
     if (action === "transcribe") {
       const { download_url, file_key } = body;
       if (!download_url) return err("Missing download_url");
-
       const audioDurationSec = audio_duration || 0;
       const estimatedMinutes = Math.ceil(audioDurationSec / 60 * 10) / 10;
       if (estimatedMinutes > remaining) return err("לא מספיק דקות.", 403);
 
-      // Use /run (async) instead of /runsync — returns immediately with job ID
-      const runpodUrl = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`;
-
-      const rpResponse = await fetch(runpodUrl, {
+      // Async run — returns immediately
+      const rpResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${RUNPOD_API_KEY}` },
         body: JSON.stringify({
@@ -311,53 +321,44 @@ export async function POST(req: NextRequest) {
       });
 
       if (!rpResponse.ok) {
-        const rpErr = await rpResponse.text();
-        await logUsage(user.id, audioDurationSec, lang || "he", model || "large-v3", "failed", 0, 0, rpErr);
+        await logUsage(user.id, audioDurationSec, lang || "he", model || "large-v3", "failed", 0, 0, await rpResponse.text());
         return err("שרת התמלול לא זמין. נסה שוב.", 502);
       }
 
       const rpResult = await rpResponse.json();
-      const jobId = rpResult.id;
+      if (!rpResult.id) return err("שגיאה בהפעלת תמלול", 500);
 
-      if (!jobId) return err("שגיאה בהפעלת תמלול", 500);
-
-      // Return job ID immediately — plugin will poll check_job
-      return NextResponse.json({
-        ok: true, action: "job_started", job_id: jobId,
-        file_key, audio_duration: audioDurationSec,
-      });
+      return NextResponse.json({ ok: true, action: "job_started", job_id: rpResult.id, file_key, audio_duration: audioDurationSec });
     }
 
-    // ── check_job (poll for results) ──
+    // ── check_job (poll — called every 3 seconds by plugin) ──
     if (action === "check_job") {
       const { job_id, file_key } = body;
       if (!job_id) return err("Missing job_id");
 
-      const statusUrl = `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/status/${job_id}`;
-      const rpResponse = await fetch(statusUrl, {
+      const rpResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/status/${job_id}`, {
         headers: { "Authorization": `Bearer ${RUNPOD_API_KEY}` },
       });
 
-      if (!rpResponse.ok) return err("שגיאה בבדיקת סטטוס", 502);
+      if (!rpResponse.ok) return NextResponse.json({ ok: true, status: "processing" }); // Network glitch — just retry
+
       const rpResult = await rpResponse.json();
 
-      // Still running
       if (rpResult.status === "IN_QUEUE" || rpResult.status === "IN_PROGRESS") {
         return NextResponse.json({ ok: true, status: "processing" });
       }
 
-      // Failed
-      if (rpResult.status === "FAILED" || rpResult.output?.error) {
-        const errMsg = rpResult.output?.error || "Unknown error";
+      if (rpResult.status === "FAILED") {
+        const errMsg = rpResult.output?.error || rpResult.error || "Unknown error";
         const audioDurationSec = audio_duration || 0;
         await logUsage(user.id, audioDurationSec, lang || "he", model || "large-v3", "failed", 0, 0, errMsg);
         return err("שגיאת תמלול: " + errMsg, 500);
       }
 
-      // Completed!
       if (rpResult.status === "COMPLETED") {
         const output = rpResult.output || {};
         let segments: Segment[] = output.segments || [];
+        const whisperWords: Word[] = output.words || [];
         const audioDurationSec = audio_duration || 0;
 
         if (segments.length === 0) {
@@ -365,36 +366,28 @@ export async function POST(req: NextRequest) {
           return err("לא נמצא דיבור.", 200);
         }
 
-        // AI Text Correction + Word Splitting
+        // AI Correction + Word Split
         const wpg = parseInt(words_per_group) || 1;
-        const aiResult = await aiCorrectSegments(segments, lang || "he", caption_style || "auto", wpg);
+        const aiResult = await aiCorrectSegments(segments, lang || "he", caption_style || "auto", wpg, whisperWords);
         segments = aiResult.segments;
 
-        // Build SRT
         const srt = buildSrt(segments);
 
-        // Log & deduct
-        const minutesCharged = await logUsage(
-          user.id, audioDurationSec, lang || "he", model || "large-v3",
-          "completed", segments.length, 0
-        );
+        const minutesCharged = await logUsage(user.id, audioDurationSec, lang || "he", model || "large-v3", "completed", segments.length, 0);
         await deductMinutes(user.id, minutesCharged);
 
-        // Cleanup S3
-        if (file_key) s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: file_key })).catch(() => { });
+        if (file_key) s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: file_key })).catch(() => {});
 
         return NextResponse.json({
           ok: true, status: "completed", segments, srt,
-          language: output.language || lang,
-          elapsed: output.elapsed,
-          count: segments.length,
-          minutes_charged: minutesCharged,
-          minutes_remaining: remaining - minutesCharged,
-          ai_correction: aiResult.method,
+          language: output.language || lang, elapsed: output.elapsed,
+          count: segments.length, minutes_charged: minutesCharged,
+          minutes_remaining: remaining - minutesCharged, ai_correction: aiResult.method,
         });
       }
 
-      return NextResponse.json({ ok: true, status: rpResult.status || "unknown" });
+      // Unknown status — keep waiting
+      return NextResponse.json({ ok: true, status: "processing" });
     }
 
     // ── status ──
@@ -408,6 +401,6 @@ export async function POST(req: NextRequest) {
     return err("Unknown action");
   } catch (e: any) {
     console.error("API Error:", e);
-    return err("שגיאה פנימית בשרת", 500);
+    return err("שגיאה פנימית", 500);
   }
 }
