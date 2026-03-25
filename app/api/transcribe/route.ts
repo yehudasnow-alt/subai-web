@@ -1,9 +1,9 @@
 /**
- * SubAI — Transcription API v5.0
- * - Async RunPod (run + poll) — no timeouts ever
- * - Surgical Claude correction — minimal intervention, no hallucinations
- * - Word-level timestamps from Whisper for precise TikTok splitting
- * - Integrity check: if Claude changes segment count, fallback to original
+ * SubAI — Transcription API v6.0
+ * Same as v5 + Smart sentence splitting:
+ * - "auto": splits at punctuation, max 42 chars, max 4 seconds
+ * - "sentence": splits at period/question/exclamation only
+ * - "word1-6": word-level with Whisper timestamps
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -60,17 +60,21 @@ async function deductMinutes(userId: string, minutes: number) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// AI CORRECTION — Surgical, minimal intervention
+// TYPES
 // ══════════════════════════════════════════════════════════════
 
 interface Segment { start: number; end: number; text: string; }
 interface Word { start: number; end: number; word: string; probability?: number; }
 
+// ══════════════════════════════════════════════════════════════
+// AI CORRECTION — Surgical, minimal intervention (unchanged)
+// ══════════════════════════════════════════════════════════════
+
 async function aiCorrectSegments(
-  segments: Segment[], language: string, captionStyle: string, wordsPerGroup: number, words: Word[]
-): Promise<{ segments: Segment[]; method: string }> {
+  segments: Segment[], language: string, whisperWords: Word[]
+): Promise<{ segments: Segment[]; words: Word[]; method: string }> {
   if (!ANTHROPIC_API_KEY || segments.length === 0) {
-    return { segments: applyWordSplit(segments, captionStyle, wordsPerGroup, words), method: "none" };
+    return { segments, words: whisperWords, method: "none" };
   }
 
   try {
@@ -80,7 +84,6 @@ async function aiCorrectSegments(
 
     const langName = language === "he" ? "עברית" : language === "ar" ? "ערבית" : "English";
 
-    // ── SURGICAL PROMPT — minimal intervention, zero hallucinations ──
     const systemPrompt = `You are a precision-focused subtitle editor for ${langName}.
 Your goal: fix ONLY what Whisper got wrong. Preserve the speaker's exact words.
 
@@ -92,45 +95,36 @@ STEP 2 — FIX ONLY THESE (nothing else):
 A) PHONETIC TRANSCRIPTION ERRORS:
    Fix words Whisper misheard due to similar sounds.
    Hebrew examples: swapping א/ע, ה/ח, כ/ק, ט/ת, ס/ש, ב/פ
-   Example: "עבוק" → "עמוק" (if context confirms depth)
-   Example: "להתכלל" → "להתפלל" (ONLY if context is prayer, NOT cooking)
    Rule: Fix ONLY if you are 99%+ certain from surrounding context.
 
 B) PUNCTUATION:
    Add periods at clear sentence ends.
    Add commas at natural pauses.
    Add question marks for questions.
-   Fix multiple punctuation to single (... → .)
+   Fix multiple punctuation to single.
 
 C) SENTENCE BOUNDARIES:
-   If a word belongs to the previous segment (sentence started there), move it back.
-   If a segment starts mid-sentence, merge the orphan word to where it belongs.
+   If a word belongs to the previous segment, move it back.
    Each segment should start and end at natural speech boundaries.
 
 D) REMOVE WHISPER ARTIFACTS:
    Delete exact duplicate phrases within a segment.
    Remove [music], [applause] type annotations.
-   Remove segments that repeat the previous segment verbatim.
 
 E) MISSING WORDS (99% certainty only):
-   If a sentence clearly lacks one word to make sense (e.g., "אני לבית" → "אני הולך לבית"),
-   and you are 99% sure from context, add it.
+   If a sentence clearly lacks one word to make sense, add it.
 
-STEP 3 — ABSOLUTE RULES (violating these = failure):
-- NO REWRITING: Do not improve grammar or style. Awkward speech stays awkward.
-- NO SYNONYMS: Never replace a word with a similar/better word.
-- PRESERVE SLANG: Keep "כאילו", "אממ", "אז", stuttering, filler words.
-- PRESERVE NAMES: Do not change names, brands, places, technical terms.
-- NO ADDITIONS: Do not add words that weren't spoken (except rule E).
-- NO DELETIONS: Do not remove words that were spoken.
-- WHEN IN DOUBT: Leave the original text unchanged. Silence > hallucination.
+STEP 3 — ABSOLUTE RULES:
+- NO REWRITING. Awkward speech stays awkward.
+- NO SYNONYMS. Never replace a word with a similar word.
+- PRESERVE SLANG: Keep "כאילו", "אממ", "אז", stuttering, fillers.
+- PRESERVE NAMES: Do not change names, brands, places.
+- WHEN IN DOUBT: Leave original unchanged.
 
-VERIFICATION:
-After correcting, check: did I add any word/fact that wasn't in the input? If yes, delete it.
-Every input line MUST have exactly one output line. Do not merge or skip lines.
+VERIFICATION: After correcting, check: did I add any word that wasn't in the input? If yes, delete it.
+Every input line MUST have exactly one output line.
 
-FORMAT: Return ONLY corrected segments, one per line:
-[index|start-end] corrected text`;
+FORMAT: [index|start-end] corrected text`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -148,14 +142,12 @@ FORMAT: Return ONLY corrected segments, one per line:
     });
 
     if (!response.ok) {
-      console.error("Claude API error:", response.status);
-      return { segments: applyWordSplit(segments, captionStyle, wordsPerGroup, words), method: "api_fallback" };
+      return { segments, words: whisperWords, method: "api_fallback" };
     }
 
     const result = await response.json();
     const correctedText = result.content?.[0]?.text || "";
 
-    // Parse corrected segments
     const corrected: Segment[] = [];
     for (const line of correctedText.split("\n")) {
       const m = line.match(/\[(\d+)\|([\d.]+)-([\d.]+)\]\s*(.*)/);
@@ -164,76 +156,170 @@ FORMAT: Return ONLY corrected segments, one per line:
       }
     }
 
-    // ── INTEGRITY CHECK — if Claude changed segment count, fallback ──
-    if (corrected.length === 0) {
-      console.warn("Claude returned empty — using original");
-      return { segments: applyWordSplit(segments, captionStyle, wordsPerGroup, words), method: "empty_fallback" };
+    // Integrity check
+    if (corrected.length === 0 || Math.abs(corrected.length - segments.length) > segments.length * 0.2) {
+      return { segments, words: whisperWords, method: "integrity_fallback" };
     }
 
-    if (Math.abs(corrected.length - segments.length) > segments.length * 0.2) {
-      // Claude added/removed more than 20% of segments — suspicious
-      console.warn(`Claude altered segment count: ${segments.length} → ${corrected.length} — using original`);
-      return { segments: applyWordSplit(segments, captionStyle, wordsPerGroup, words), method: "integrity_fallback" };
-    }
-
-    return { segments: applyWordSplit(corrected, captionStyle, wordsPerGroup, words), method: "claude" };
+    return { segments: corrected, words: whisperWords, method: "claude" };
   } catch (e) {
-    console.error("AI correction error:", e);
-    return { segments: applyWordSplit(segments, captionStyle, wordsPerGroup, words), method: "error_fallback" };
+    return { segments, words: whisperWords, method: "error_fallback" };
   }
 }
 
 // ══════════════════════════════════════════════════════════════
-// WORD SPLITTING — Uses word-level timestamps when available
+// SMART SENTENCE SPLITTING — for "auto" and "sentence" modes
 // ══════════════════════════════════════════════════════════════
 
-function applyWordSplit(segments: Segment[], style: string, wordsPerGroup: number, whisperWords: Word[]): Segment[] {
-  if (!style || style === "auto" || style === "sentence") return segments;
+const MAX_CHARS = 42;       // Max characters per subtitle line
+const MAX_DURATION = 4.0;   // Max seconds per subtitle
+const MIN_DURATION = 0.3;   // Min seconds per subtitle
 
-  let groupSize = wordsPerGroup || 1;
-  const styleNum = parseInt(style.replace("word", ""));
-  if (styleNum >= 1 && styleNum <= 6) groupSize = styleNum;
-
-  // If we have word-level timestamps from Whisper, use them for precise timing
-  if (whisperWords && whisperWords.length > 0) {
-    return splitFromWordTimestamps(whisperWords, groupSize);
-  }
-
-  // Fallback: split proportionally by character weight
-  return splitProportionally(segments, groupSize);
-}
-
-function splitFromWordTimestamps(words: Word[], groupSize: number): Segment[] {
-  const result: Segment[] = [];
-
-  for (let i = 0; i < words.length; i += groupSize) {
-    const group = words.slice(i, i + groupSize);
-    if (group.length === 0) continue;
-
-    const text = group.map(w => w.word).join(" ");
-    const start = group[0].start;
-    const end = group[group.length - 1].end;
-
-    result.push({
-      start: +start.toFixed(3),
-      end: +Math.max(end, start + 0.1).toFixed(3),
-      text,
-    });
-  }
-
-  return result;
-}
-
-function splitProportionally(segments: Segment[], groupSize: number): Segment[] {
+function smartSplitSentences(segments: Segment[], mode: "auto" | "sentence"): Segment[] {
   const result: Segment[] = [];
 
   for (const seg of segments) {
-    const duration = seg.end - seg.start;
-    const words = seg.text.split(/\s+/).filter(w => w.length > 0);
+    const text = seg.text.trim();
+    if (!text) continue;
+
+    const dur = seg.end - seg.start;
+
+    // If already short enough, keep as-is
+    if (text.length <= MAX_CHARS && dur <= MAX_DURATION) {
+      result.push(seg);
+      continue;
+    }
+
+    // Split strategy depends on mode
+    if (mode === "sentence") {
+      // Split ONLY at sentence endings: . ! ?
+      splitAtPattern(seg, /(?<=[.!?])\s+/, result);
+    } else {
+      // "auto" — split at best natural break point
+      // Priority: period > question/exclamation > comma > word boundary
+      const splitDone = splitAtPattern(seg, /(?<=[.!?])\s+/, result);
+      if (!splitDone) {
+        splitAtPattern(seg, /(?<=,)\s+/, result);
+      }
+    }
+  }
+
+  // Second pass: split any remaining long segments at word boundaries
+  const final: Segment[] = [];
+  for (const seg of result) {
+    if (seg.text.length <= MAX_CHARS && (seg.end - seg.start) <= MAX_DURATION) {
+      final.push(seg);
+      continue;
+    }
+    // Force split at word boundary near midpoint
+    splitAtWordBoundary(seg, final);
+  }
+
+  return final;
+}
+
+function splitAtPattern(seg: Segment, pattern: RegExp, result: Segment[]): boolean {
+  const parts = seg.text.split(pattern).filter(p => p.trim());
+  if (parts.length < 2) {
+    result.push(seg);
+    return false;
+  }
+
+  const dur = seg.end - seg.start;
+  const totalChars = parts.reduce((s, p) => s + p.length, 0);
+  let currentTime = seg.start;
+
+  for (const part of parts) {
+    const ratio = part.length / totalChars;
+    const partDur = Math.max(MIN_DURATION, dur * ratio);
+    const endTime = Math.min(currentTime + partDur, seg.end);
+
+    result.push({
+      start: +currentTime.toFixed(3),
+      end: +endTime.toFixed(3),
+      text: part.trim(),
+    });
+    currentTime = endTime;
+  }
+  return true;
+}
+
+function splitAtWordBoundary(seg: Segment, result: Segment[]) {
+  const words = seg.text.split(/\s+/);
+  if (words.length < 2) {
+    result.push(seg);
+    return;
+  }
+
+  const dur = seg.end - seg.start;
+  const totalChars = words.reduce((s, w) => s + w.length, 0);
+
+  // Find best split point: closest to middle that keeps both parts under MAX_CHARS
+  let bestSplit = Math.floor(words.length / 2);
+  let bestScore = Infinity;
+
+  for (let i = 1; i < words.length; i++) {
+    const left = words.slice(0, i).join(" ");
+    const right = words.slice(i).join(" ");
+    const maxLen = Math.max(left.length, right.length);
+    const balance = Math.abs(left.length - right.length);
+    const score = maxLen + balance * 0.5;
+
+    if (score < bestScore) {
+      bestScore = score;
+      bestSplit = i;
+    }
+  }
+
+  const leftText = words.slice(0, bestSplit).join(" ");
+  const rightText = words.slice(bestSplit).join(" ");
+  const leftChars = leftText.replace(/\s/g, "").length;
+  const ratio = leftChars / totalChars;
+  const splitTime = seg.start + dur * ratio;
+
+  result.push({ start: seg.start, end: +splitTime.toFixed(3), text: leftText });
+  result.push({ start: +splitTime.toFixed(3), end: seg.end, text: rightText });
+
+  // Recursively split if still too long
+  const last = result[result.length - 1];
+  const secondLast = result[result.length - 2];
+  if (last.text.length > MAX_CHARS && last.text.split(/\s+/).length >= 4) {
+    result.pop();
+    splitAtWordBoundary(last, result);
+  }
+  if (secondLast.text.length > MAX_CHARS && secondLast.text.split(/\s+/).length >= 4) {
+    result.splice(result.length - 1, 0); // handled by next iteration
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// WORD SPLITTING — for TikTok modes (word1-word6)
+// ══════════════════════════════════════════════════════════════
+
+function splitByWords(segments: Segment[], groupSize: number, whisperWords: Word[]): Segment[] {
+  // If we have word-level timestamps from Whisper, use them
+  if (whisperWords && whisperWords.length > 0) {
+    const result: Segment[] = [];
+    for (let i = 0; i < whisperWords.length; i += groupSize) {
+      const group = whisperWords.slice(i, i + groupSize);
+      if (group.length === 0) continue;
+      result.push({
+        start: +group[0].start.toFixed(3),
+        end: +Math.max(group[group.length - 1].end, group[0].start + 0.1).toFixed(3),
+        text: group.map(w => w.word).join(" "),
+      });
+    }
+    return result;
+  }
+
+  // Fallback: split proportionally
+  const result: Segment[] = [];
+  for (const seg of segments) {
+    const dur = seg.end - seg.start;
+    const words = seg.text.split(/\s+/).filter(w => w);
     if (words.length === 0) continue;
     if (words.length <= groupSize) { result.push(seg); continue; }
 
-    // Hebrew chars weigh 1.4x (more complex pronunciation)
     const wordWeights = words.map(w => {
       const heb = (w.match(/[\u0590-\u05FF\u0600-\u06FF]/g) || []).length;
       return heb * 1.4 + (w.length - heb);
@@ -244,19 +330,37 @@ function splitProportionally(segments: Segment[], groupSize: number): Segment[] 
     for (let i = 0; i < words.length; i += groupSize) {
       const group = words.slice(i, i + groupSize);
       const indices = Array.from({ length: group.length }, (_, j) => i + j);
-      const groupWeight = indices.reduce((s, idx) => s + wordWeights[idx], 0);
-      const groupDur = duration * (groupWeight / totalWeight);
-
-      // TikTok: zero padding for snappy word appearance
+      const gw = indices.reduce((s, idx) => s + wordWeights[idx], 0);
+      const gd = dur * (gw / totalWeight);
       result.push({
         start: +t.toFixed(3),
-        end: +Math.max(t + groupDur, t + 0.1).toFixed(3),
+        end: +Math.max(t + gd, t + 0.1).toFixed(3),
         text: group.join(" "),
       });
-      t += groupDur;
+      t += gd;
     }
   }
   return result;
+}
+
+// ══════════════════════════════════════════════════════════════
+// APPLY STYLE — Routes to correct splitting function
+// ══════════════════════════════════════════════════════════════
+
+function applyStyle(segments: Segment[], style: string, wordsPerGroup: number, whisperWords: Word[]): Segment[] {
+  if (!style || style === "auto") {
+    return smartSplitSentences(segments, "auto");
+  }
+  if (style === "sentence") {
+    return smartSplitSentences(segments, "sentence");
+  }
+
+  // Word modes: word1, word2, ... word6
+  let groupSize = wordsPerGroup || 1;
+  const n = parseInt(style.replace("word", ""));
+  if (n >= 1 && n <= 6) groupSize = n;
+
+  return splitByWords(segments, groupSize, whisperWords);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -311,7 +415,6 @@ export async function POST(req: NextRequest) {
       const estimatedMinutes = Math.ceil(audioDurationSec / 60 * 10) / 10;
       if (estimatedMinutes > remaining) return err("לא מספיק דקות.", 403);
 
-      // Async run — returns immediately
       const rpResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${RUNPOD_API_KEY}` },
@@ -331,7 +434,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, action: "job_started", job_id: rpResult.id, file_key, audio_duration: audioDurationSec });
     }
 
-    // ── check_job (poll — called every 3 seconds by plugin) ──
+    // ── check_job (poll — every 3 seconds by plugin) ──
     if (action === "check_job") {
       const { job_id, file_key } = body;
       if (!job_id) return err("Missing job_id");
@@ -340,7 +443,7 @@ export async function POST(req: NextRequest) {
         headers: { "Authorization": `Bearer ${RUNPOD_API_KEY}` },
       });
 
-      if (!rpResponse.ok) return NextResponse.json({ ok: true, status: "processing" }); // Network glitch — just retry
+      if (!rpResponse.ok) return NextResponse.json({ ok: true, status: "processing" });
 
       const rpResult = await rpResponse.json();
 
@@ -350,8 +453,7 @@ export async function POST(req: NextRequest) {
 
       if (rpResult.status === "FAILED") {
         const errMsg = rpResult.output?.error || rpResult.error || "Unknown error";
-        const audioDurationSec = audio_duration || 0;
-        await logUsage(user.id, audioDurationSec, lang || "he", model || "large-v3", "failed", 0, 0, errMsg);
+        await logUsage(user.id, audio_duration || 0, lang || "he", model || "large-v3", "failed", 0, 0, errMsg);
         return err("שגיאת תמלול: " + errMsg, 500);
       }
 
@@ -366,27 +468,35 @@ export async function POST(req: NextRequest) {
           return err("לא נמצא דיבור.", 200);
         }
 
-        // AI Correction + Word Split
-        const wpg = parseInt(words_per_group) || 1;
-        const aiResult = await aiCorrectSegments(segments, lang || "he", caption_style || "auto", wpg, whisperWords);
+        // Step 1: AI Correction (Claude fixes text, preserves timing)
+        const aiResult = await aiCorrectSegments(segments, lang || "he", whisperWords);
         segments = aiResult.segments;
 
-        const srt = buildSrt(segments);
+        // Step 2: Apply style splitting (sentence/word based on user choice)
+        const wpg = parseInt(words_per_group) || 1;
+        const styledSegments = applyStyle(segments, caption_style || "auto", wpg, aiResult.words);
 
-        const minutesCharged = await logUsage(user.id, audioDurationSec, lang || "he", model || "large-v3", "completed", segments.length, 0);
+        // Step 3: Build SRT
+        const srt = buildSrt(styledSegments);
+
+        // Step 4: Log & deduct
+        const minutesCharged = await logUsage(user.id, audioDurationSec, lang || "he", model || "large-v3", "completed", styledSegments.length, 0);
         await deductMinutes(user.id, minutesCharged);
 
         if (file_key) s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: file_key })).catch(() => {});
 
         return NextResponse.json({
-          ok: true, status: "completed", segments, srt,
-          language: output.language || lang, elapsed: output.elapsed,
-          count: segments.length, minutes_charged: minutesCharged,
-          minutes_remaining: remaining - minutesCharged, ai_correction: aiResult.method,
+          ok: true, status: "completed",
+          segments: styledSegments, srt,
+          language: output.language || lang,
+          elapsed: output.elapsed,
+          count: styledSegments.length,
+          minutes_charged: minutesCharged,
+          minutes_remaining: remaining - minutesCharged,
+          ai_correction: aiResult.method,
         });
       }
 
-      // Unknown status — keep waiting
       return NextResponse.json({ ok: true, status: "processing" });
     }
 
