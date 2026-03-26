@@ -453,6 +453,102 @@ function levenshteinRatio(a: string, b: string): number {
 }
 
 // ══════════════════════════════════════════════════════════════
+// STEP 2.5: BOUNDARY REPAIR — Global word-timestamp re-mapping
+//
+// After Claude corrects text (including moving words between segments),
+// we need to re-map ALL corrected words to their original Whisper 
+// timestamps. This ensures:
+// 1. Words Claude moved between segments get correct timestamps
+// 2. Sentence-ending words that belong to the previous sentence 
+//    get properly timed
+// 3. The splitting phase works with accurate data
+// ══════════════════════════════════════════════════════════════
+
+function repairBoundaries(correctedSegs: TimedSegment[], originalWords: Word[]): TimedSegment[] {
+  if (!originalWords || originalWords.length === 0) return correctedSegs;
+
+  // Step A: Flatten all corrected words from all segments (preserving segment structure)
+  const allCorrectedWords: string[] = [];
+  const segmentMap: Array<{ segIdx: number; wordIdx: number }> = [];
+
+  for (let si = 0; si < correctedSegs.length; si++) {
+    const words = correctedSegs[si].text.split(/\s+/).filter(w => w);
+    for (let wi = 0; wi < words.length; wi++) {
+      allCorrectedWords.push(words[wi]);
+      segmentMap.push({ segIdx: si, wordIdx: wi });
+    }
+  }
+
+  // Step B: Match corrected words to original Whisper words by sequence
+  // Use greedy forward matching — each corrected word gets the next available original word
+  const matched: Array<{ word: string; start: number; end: number }> = [];
+  let origIdx = 0;
+
+  for (let ci = 0; ci < allCorrectedWords.length; ci++) {
+    const corrWord = allCorrectedWords[ci].replace(/[.!?,;:"״]+$/g, "").replace(/^[.!?,;:"״]+/g, "");
+
+    if (origIdx < originalWords.length) {
+      // Use original timestamp — the word was said at this time regardless of text correction
+      matched.push({
+        word: allCorrectedWords[ci], // Keep corrected spelling + punctuation
+        start: originalWords[origIdx].start,
+        end: originalWords[origIdx].end,
+      });
+      origIdx++;
+    } else {
+      // More corrected words than original (rare — Claude added a word)
+      // Use last known timestamp
+      const lastTime = matched.length > 0 ? matched[matched.length - 1].end : 0;
+      matched.push({
+        word: allCorrectedWords[ci],
+        start: lastTime,
+        end: lastTime + 0.15,
+      });
+    }
+  }
+
+  // Step C: Rebuild TimedSegments with corrected text + matched timestamps
+  const result: TimedSegment[] = [];
+  let matchIdx = 0;
+
+  for (let si = 0; si < correctedSegs.length; si++) {
+    const wordCount = correctedSegs[si].text.split(/\s+/).filter(w => w).length;
+    const segWords: Word[] = [];
+
+    for (let wi = 0; wi < wordCount && matchIdx < matched.length; wi++) {
+      segWords.push({
+        start: matched[matchIdx].start,
+        end: matched[matchIdx].end,
+        word: matched[matchIdx].word,
+      });
+      matchIdx++;
+    }
+
+    if (segWords.length > 0) {
+      result.push({
+        start: segWords[0].start,
+        end: segWords[segWords.length - 1].end,
+        text: segWords.map(w => w.word).join(" "),
+        words: segWords,
+      });
+    }
+  }
+
+  // Step D: Log boundary changes
+  let moved = 0;
+  for (let i = 0; i < result.length; i++) {
+    if (i < correctedSegs.length && result[i].text !== correctedSegs[i].text) {
+      moved++;
+    }
+  }
+  if (moved > 0) {
+    console.log(`[BOUNDARY] Repaired ${moved} segments with updated timestamps`);
+  }
+
+  return result.length > 0 ? result : correctedSegs;
+}
+
+// ══════════════════════════════════════════════════════════════
 // STEP 3: SMART SPLITTING — Uses real word timestamps
 // ══════════════════════════════════════════════════════════════
 
@@ -728,9 +824,13 @@ export async function POST(req: NextRequest) {
         // Step 2: AI Correction (surgical proofreading — preserves timing)
         const aiResult = await aiCorrect(timedSegs, lang || "he");
 
+        // Step 2.5: Rebuild global word-timestamp mapping after AI correction
+        // This fixes sentence boundary issues where Claude moved words between segments
+        const repairedSegs = repairBoundaries(aiResult.segments, rawWords);
+
         // Step 3: Split according to user's chosen style (using real word timestamps)
         const wpg = parseInt(words_per_group) || 1;
-        const finalSegments = applySplitting(aiResult.segments, caption_style || "auto", wpg);
+        const finalSegments = applySplitting(repairedSegs, caption_style || "auto", wpg);
 
         // Step 4: Build SRT
         const srt = buildSrt(finalSegments, lang || "he");
