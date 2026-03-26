@@ -229,7 +229,7 @@ select option{background:#1a1a2e;color:#ffffff;padding:8px;font-weight:500}
       <div class="prog-msg" id="pMsg">מתחיל...</div>
       <div class="prog-sub" id="pSub"></div>
     </div>
-    <div class="card" id="resBox"><div class="chips" id="rChips"></div><div style="color:var(--grn);text-align:center;font-size:14px">✅ הכתוביות מוכנות!</div></div>
+    <div class="card" id="resBox" style="position:relative"><button class="btn-mini" onclick="$('resBox').style.display='none'" style="position:absolute;top:8px;left:8px;font-size:16px;padding:2px 8px;line-height:1">×</button><div class="chips" id="rChips"></div><div style="color:var(--grn);text-align:center;font-size:14px">✅ הכתוביות מוכנות!</div></div>
     <div id="errBox"><div style="font-size:22px;margin-bottom:6px">⚠️</div><div class="err-msg" id="errMsg"></div><button class="btn-mini" id="btnErrClose">סגור</button></div>
   </div>
 
@@ -252,7 +252,7 @@ select option{background:#1a1a2e;color:#ffffff;padding:8px;font-weight:500}
 const FS=require('fs'),PATH=require('path'),OS=require('os'),{spawn,exec}=require('child_process');
 const https=require('https'),http=require('http');
 const API_BASE='https://subai-web.vercel.app';
-const PLUGIN_VERSION='3.2.0';
+const PLUGIN_VERSION='3.3.0';
 const EXPORT_TIMEOUT=120000;
 const $=id=>document.getElementById(id);
 const e2=s=>s.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
@@ -425,12 +425,34 @@ async function runAll(){
   try{FS.unlinkSync(audioFile);}catch(_){}
 
   setP(45,'טוען מנוע AI...','המתמלל מתחמם — ייתכן המתנה קצרה');
-  let result;
-  try{result=await apiPost('/api/transcribe',{api_key:API_KEY,action:'transcribe',download_url:uploadData.download_url,
+  // Start async job
+  let startResult;
+  try{startResult=await apiPost('/api/transcribe',{api_key:API_KEY,action:'transcribe',download_url:uploadData.download_url,
     file_key:uploadData.file_key,lang,model:'large-v3',offset:inSec,audio_duration:clipDur,
     caption_style:style,words_per_group:wordsPerGroup});}
   catch(e){finish(false,'שגיאת תמלול: '+e.message);return;}
-  if(result.error){finish(false,result.message||'שגיאת תמלול');return;}
+  if(startResult.error){finish(false,startResult.message||'שגיאת תמלול');return;}
+  if(!startResult.job_id){finish(false,'שגיאה בהפעלת תמלול');return;}
+
+  // Poll for results — no timeout issues!
+  setP(50,'מתמלל...','');
+  let result=null,pollCount=0;
+  while(pollCount<120){// max 6 minutes (120 * 3 sec)
+    if(!RUNNING){finish(false,'בוטל.');return;}
+    await new Promise(r=>setTimeout(r,3000));
+    pollCount++;
+    const pct=50+Math.min(35,pollCount);
+    setP(pct,'מתמלל...',`${pollCount*3} שניות`);
+    try{
+      const check=await apiPost('/api/transcribe',{api_key:API_KEY,action:'check_job',job_id:startResult.job_id,
+        file_key:startResult.file_key,lang,audio_duration:clipDur,caption_style:style,words_per_group:wordsPerGroup});
+      if(check.error){finish(false,check.message||'שגיאת תמלול');return;}
+      if(check.status==='completed'){result=check;break;}
+      if(check.status==='processing')continue;
+      if(check.status&&check.status!=='IN_QUEUE'&&check.status!=='IN_PROGRESS'){finish(false,'סטטוס: '+check.status);return;}
+    }catch(e){/* network glitch, retry */}
+  }
+  if(!result){finish(false,'התמלול לקח יותר מדי זמן. נסה קטע קצר יותר.');return;}
 
   const srt=result.srt||'';const segments=result.segments||[];
   if(!srt.trim()&&segments.length===0){finish(false,'לא נמצא דיבור.');return;}
@@ -449,7 +471,7 @@ async function runAll(){
   setP(100,'✅ הושלם!','');await new Promise(r=>setTimeout(r,600));$('progBox').style.display='none';
   if(result.minutes_remaining!==undefined){USER.remaining=result.minutes_remaining;USER.used=(USER.limit||0)-result.minutes_remaining;updateQuotaMini();}
   $('rChips').innerHTML=`<span class="chip g">✅ ${cnt} כתוביות</span><span class="chip b">⚡ ${result.elapsed||'—'}s</span>`+(result.minutes_charged?`<span class="chip b">📊 ${result.minutes_charged} דק׳</span>`:'');
-  $('resBox').style.display='block';ftr(`✓ ${cnt} כתוביות!`);RUNNING=false;updateRunButton();
+  $('resBox').style.display='block';setTimeout(()=>{$('resBox').style.display='none';},5000);ftr(`✓ ${cnt} כתוביות!`);RUNNING=false;updateRunButton();
 }
 
 $('btnRun').onclick=runAll;
