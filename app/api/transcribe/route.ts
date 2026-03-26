@@ -402,10 +402,28 @@ One line per segment. No merging, splitting, or skipping.`;
         return seg;
       }
 
-      // All checks passed
+      // All checks passed — apply correction AND sync words
       console.log(`[AI] SEG ${i} ACCEPTED (${(distance * 100).toFixed(0)}% change): "${seg.text.trim()}" → "${correction.text}"`);
       acceptCount++;
-      return { ...seg, text: correction.text };
+      
+      // Sync corrected text back into words array (so splitting uses corrected words)
+      const correctedWords = correction.text.split(/\s+/).filter(w => w);
+      const syncedWords = seg.words.map((w, wi) => {
+        if (wi < correctedWords.length) {
+          return { ...w, word: correctedWords[wi] }; // Replace word text, KEEP timestamp
+        }
+        return w;
+      });
+      // If Claude added/removed a word, handle gracefully
+      if (correctedWords.length > seg.words.length) {
+        // More corrected words than original — append extras to last word's timing
+        for (let extra = seg.words.length; extra < correctedWords.length; extra++) {
+          const lastWord = seg.words[seg.words.length - 1];
+          syncedWords.push({ start: lastWord.end, end: lastWord.end + 0.1, word: correctedWords[extra] });
+        }
+      }
+      
+      return { ...seg, text: correction.text, words: syncedWords };
     });
 
     console.log(`[AI] SUMMARY: ${acceptCount} accepted, ${rejectCount} rejected, ${noChangeCount} unchanged`);
