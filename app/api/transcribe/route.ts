@@ -578,7 +578,9 @@ function smartAutoSplit(timedSegs: TimedSegment[]): Segment[] {
 // SRT BUILDER
 // ══════════════════════════════════════════════════════════════
 
-function buildSrt(segments: Segment[]): string {
+function buildSrt(segments: Segment[], language: string = "he"): string {
+  const isRtl = language === "he" || language === "ar";
+  const RLM = "\u200F"; // Right-to-Left Mark — invisible, tells player text is RTL
   const ts = (s: number) => {
     s = Math.max(0, s);
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sc = Math.floor(s % 60),
@@ -588,7 +590,8 @@ function buildSrt(segments: Segment[]): string {
   return segments.map((seg, i) => {
     const text = seg.text.trim();
     if (!text) return "";
-    return `${i + 1}\n${ts(seg.start)} --> ${ts(seg.end)}\n${text}\n`;
+    const rtlText = isRtl ? `${RLM}${text}` : text;
+    return `${i + 1}\n${ts(seg.start)} --> ${ts(seg.end)}\n${rtlText}\n`;
   }).filter(Boolean).join("\n");
 }
 
@@ -689,7 +692,7 @@ export async function POST(req: NextRequest) {
         const finalSegments = applySplitting(aiResult.segments, caption_style || "auto", wpg);
 
         // Step 4: Build SRT
-        const srt = buildSrt(finalSegments);
+        const srt = buildSrt(finalSegments, lang || "he");
 
         // Step 5: Log & deduct
         const mins = await logUsage(user.id, audioDurationSec, lang || "he", model || "large-v3", "completed", finalSegments.length, 0);
