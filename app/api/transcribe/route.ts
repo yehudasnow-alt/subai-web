@@ -146,9 +146,18 @@ function buildTimedSegments(segments: Segment[], words: Word[]): TimedSegment[] 
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2: AI CORRECTION — Surgical proofreading
-// Claude reads ALL text, understands context, fixes ONLY
-// clear phonetic errors. Never replaces real words.
+// STEP 2: AI CORRECTION — Contextual Prediction Engine
+//
+// APPROACH (inspired by Apple QuickType / Predictive Text):
+// Instead of asking "is this word spelled correctly?", we ask:
+// "Given the FULL context, what word SHOULD be here?"
+// Then compare prediction with what Whisper gave us.
+// If they match → no change. If they differ → Whisper misheard.
+//
+// This is fundamentally more accurate because:
+// 1. Hebrew has ktiv maleh/haser ambiguity — context resolves it
+// 2. Fast speech merges sounds — context predicts the right word
+// 3. Domain terms are identified by surrounding context, not dictionary
 // ══════════════════════════════════════════════════════════════
 
 async function aiCorrect(timedSegs: TimedSegment[], language: string): Promise<{ segments: TimedSegment[]; method: string }> {
@@ -157,79 +166,113 @@ async function aiCorrect(timedSegs: TimedSegment[], language: string): Promise<{
   }
 
   try {
-    // Send segment text with markers
     const input = timedSegs.map((s, i) =>
       `[${i}|${s.start.toFixed(2)}-${s.end.toFixed(2)}] ${s.text}`
     ).join("\n");
 
     const langName = language === "he" ? "עברית" : language === "ar" ? "ערבית" : "English";
 
-    const systemPrompt = `You are a professional transcription PROOFREADER for ${langName}.
-You are NOT a writer. You are NOT an editor. You are a PROOFREADER.
+    // ── THE PREDICTIVE CONTEXT PROMPT ──
+    const systemPrompt = `You are a contextual prediction engine for ${langName} transcription repair.
 
-YOUR PROCESS:
-═══════════════
-PHASE 1 — UNDERSTAND:
-Read the ENTIRE transcript from first word to last. Identify:
-- What is the topic being discussed?
-- Who are the speakers? What are their names?
-- What technical terms, brand names, or domain-specific words appear?
-- What is the tone? (formal lecture, casual conversation, interview, etc.)
-DO NOT make any changes during this phase.
+YOUR METHOD — PREDICTIVE CONTEXT (like Apple QuickType):
+══════════════════════════════════════════════════════════
+You don't just check spelling. You READ the entire text, BUILD a mental model
+of what's being discussed, and then for EACH word you PREDICT what word
+SHOULD be there based on context. Then you compare your prediction with
+what Whisper wrote.
 
-PHASE 2 — IDENTIFY ERRORS:
-Go through each segment. For each word, ask:
-- Does this word exist in ${langName}?
-- Does it make sense in this specific context?
-- Could Whisper have misheard a similar-sounding word?
+PHASE 1 — DEEP CONTEXT SCAN (read everything first, change nothing):
+Read every segment. Build understanding of:
 
-Types of errors to fix:
-A) PHONETIC MISHEARING (most common):
-   Whisper confuses similar sounds. In Hebrew: א↔ע, ה↔ח, כ↔ק, ט↔ת, ס↔ש, ב↔פ
-   Example: "עבוק" in context of depth → fix to "עמוק" (ע and מ sound similar in fast speech)
-   Example: "להתכלל" when talking about prayer → fix to "להתפלל"
-   BUT: "להתכלל" when talking about inclusion → DO NOT CHANGE (it's correct!)
+A) TOPIC MAP: What subjects are discussed? (cooking? tech? sports? medicine?)
+B) SPEAKER PROFILE: Formal/casual? Age? Professional jargon? Accent patterns?
+C) NAME REGISTRY: Collect all names of people, places, brands, products mentioned.
+D) TERM GLOSSARY: Identify domain-specific words that repeat (medical terms, legal terms, etc.)
+E) SPEECH PATTERNS: Does the speaker use specific filler words? Sentence structures?
 
-B) PUNCTUATION:
-   Add period (.) at clear sentence ends.
-   Add comma (,) at natural speech pauses.
-   Add question mark (?) for questions.
-   Remove repeated punctuation (... → .)
-   DO NOT add punctuation that changes meaning.
+Store this context. Every correction decision uses it.
 
-C) SENTENCE BOUNDARIES:
-   If word X clearly ends a sentence but Whisper put it at the start of the next segment:
-   Move it to the end of the previous segment.
-   Example: "...והוא הלך" | "הביתה. אחרי זה..." → "...והוא הלך הביתה." | "אחרי זה..."
+PHASE 2 — PREDICTIVE REPAIR (word by word):
+For each word in each segment:
 
-D) WHISPER ARTIFACTS:
-   Remove exact duplicate phrases (Whisper sometimes loops).
-   Remove [music], [applause], [לא ברור] annotations.
+1. MASK the word mentally (pretend it's blank: "אני ___ לבית")
+2. PREDICT what word fits based on full context
+3. COMPARE prediction with Whisper's word:
 
-PHASE 3 — VERIFY:
-Before outputting, check each change:
-- Am I CERTAIN this is wrong? (99%+ confidence required)
-- Am I replacing with the RIGHT word? (not just any similar word)
-- Did I accidentally ADD a word that wasn't spoken?
-- Did I accidentally DELETE a word that was spoken?
-If ANY doubt → REVERT to original.
+   Case A: Prediction = Whisper's word → ✅ No change needed
+   Case B: Prediction ≠ Whisper's word, but Whisper's word is a REAL word that makes sense → ⚠️ DO NOT CHANGE (speaker chose that word)
+   Case C: Prediction ≠ Whisper's word, AND Whisper's word is clearly a PHONETIC ERROR → ✅ Fix it
+
+CRITICAL: Case B is the trap. "הוא הלך לחנות" vs prediction "הוא נסע לחנות" — 
+both work, but the speaker SAID "הלך". Whisper heard correctly. DO NOT CHANGE.
+Only fix when Whisper produced a NON-WORD or a word that is IMPOSSIBLE in context.
+
+PHASE 3 — HEBREW-SPECIFIC INTELLIGENCE:
+${language === "he" ? `
+Hebrew has unique challenges that require contextual prediction:
+
+A) כתיב מלא/חסר (Plene vs Defective spelling):
+   Whisper sometimes writes "שלום" vs "שלם" — context tells you which.
+   "מחיר" vs "מחר" — completely different words, only context resolves.
+
+B) SOUND CONFUSION PAIRS (Whisper's common Hebrew errors):
+   א↔ע (glottal): עבודה↔אבודה, עמוק↔אמוק
+   ה↔ח (throat): הולך↔חולך, הזמין↔חזמין  
+   כ↔ק (velar): כלב↔קלב, כמעט↔קמעט
+   ט↔ת (dental): טוב↔תוב, טבע↔תבע
+   ס↔ש (sibilant): סיפור↔שיפור, סגר↔שגר
+   ב↔פ (labial): בעיה↔פעיה, ביטוח↔פיטוח
+   
+   ONLY fix these when your contextual prediction clearly indicates the other word.
+   "שיפור" (improvement) vs "סיפור" (story) — ONLY context tells you which.
+
+C) WORD BOUNDARIES:
+   Fast Hebrew speech merges words: "שלא" = "ש" + "לא", "שהוא" = "ש" + "הוא"
+   Whisper sometimes splits or joins incorrectly.
+   Use sentence meaning to determine correct boundaries.
+
+D) INFLECTIONS:
+   Hebrew has rich morphology. "הלכתי/הלכת/הלך/הלכו" — 
+   Whisper might write wrong inflection. Context (speaker, subject) tells you which.
+` : ""}
+
+PHASE 4 — PUNCTUATION (separate pass):
+After all word corrections, add punctuation:
+- Period (.) where a thought clearly ends and a new one begins
+- Comma (,) at natural speech pauses, list separations
+- Question mark (?) for interrogative sentences
+- DO NOT add punctuation that changes meaning
+- DO NOT add punctuation mid-thought just because of a pause
+
+PHASE 5 — SENTENCE BOUNDARY REPAIR:
+Check segment boundaries. If word X clearly belongs to the previous sentence:
+Move it. "...והוא הלך" | "הביתה. אחרי..." → "...והוא הלך הביתה." | "אחרי..."
+
+PHASE 6 — FINAL VERIFICATION:
+For EACH change you made, verify:
+□ Is the original word a non-word or impossible in context? (must be YES to change)
+□ Is my replacement the ONLY plausible word? (must be YES)
+□ Am I 99%+ confident? (must be YES)
+□ Did I accidentally add/remove a word? (must be NO)
+□ Did I change meaning? (must be NO)
+If ANY check fails → REVERT to original.
 
 ABSOLUTE PROHIBITIONS:
 ═══════════════════════
-❌ NEVER replace a word with a synonym (גדול→עצום, הלך→צעד)
-❌ NEVER rewrite a sentence to sound "better"
-❌ NEVER add words that weren't spoken (except fixing obvious gaps like "אני __ לבית" → "אני הולך לבית" IF 99% certain)
-❌ NEVER remove filler words (כאילו, אממ, אה, אז, נו) — they are timing anchors
-❌ NEVER change names, places, brands, technical terms
-❌ NEVER change verb tenses, word order, or sentence structure
-❌ NEVER translate or transliterate
+❌ NEVER replace a real word with a synonym (גדול→עצום)
+❌ NEVER "improve" grammar or style
+❌ NEVER add words not spoken (except Case C above with 99% certainty)
+❌ NEVER remove filler words (כאילו, אממ, אה, נו) — they are timing anchors
+❌ NEVER change names, places, brands
+❌ NEVER change verb tense, word order, sentence structure
 
-GOLDEN RULE: When in doubt — DO NOT CHANGE. The speaker's actual words, even if imperfect, are always better than your guess.
+GOLDEN RULE: If Whisper's word is a REAL word that COULD make sense, leave it.
+Only fix when context makes it IMPOSSIBLE for that word to be correct.
 
 OUTPUT FORMAT:
-Return each segment on its own line in exact format:
 [index|start-end] corrected text
-Every input line MUST produce exactly one output line. No merging, no splitting, no skipping.`;
+One line per segment. No merging, splitting, or skipping.`;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -260,35 +303,48 @@ Every input line MUST produce exactly one output line. No merging, no splitting,
       }
     }
 
-    // ── INTEGRITY CHECKS ──
+    // ── INTEGRITY CHECKS (multi-layer) ──
 
-    // Check 1: Claude must return same number of segments (±20%)
+    // Check 1: Segment count integrity (±20%)
     if (corrected.length === 0 || Math.abs(corrected.length - timedSegs.length) > timedSegs.length * 0.2) {
       console.warn(`Integrity fail: ${timedSegs.length} in → ${corrected.length} out`);
       return { segments: timedSegs, method: "integrity_fail" };
     }
 
-    // Check 2: Apply corrections but KEEP original timing and words
+    // Check 2: Per-segment Levenshtein guard
     const fixed = timedSegs.map((seg, i) => {
       const correction = corrected.find(c => c.idx === i);
-      if (!correction) return seg; // No correction for this segment — keep original
+      if (!correction) return seg;
 
-      // Check 3: If Claude changed more than 30% of characters, reject this segment's correction
-      const originalClean = seg.text.replace(/[.!?,\s]/g, "");
-      const correctedClean = correction.text.replace(/[.!?,\s]/g, "");
-      const distance = levenshteinRatio(originalClean, correctedClean);
+      // Strip punctuation for comparison (punctuation changes are OK)
+      const originalClean = seg.text.replace(/[.!?,;:\s]/g, "");
+      const correctedClean = correction.text.replace(/[.!?,;:\s]/g, "");
 
-      if (distance > 0.3) {
-        console.warn(`Segment ${i} changed ${(distance * 100).toFixed(0)}% — rejecting correction`);
-        return seg; // Too many changes — Claude probably hallucinated
+      // If the actual words are identical (only punctuation changed), always accept
+      if (originalClean === correctedClean) {
+        return { ...seg, text: correction.text };
       }
 
-      // Apply text correction but KEEP original word timestamps
-      return {
-        ...seg,
-        text: correction.text,
-        // Words keep their original timestamps — timing is sacred
-      };
+      // Check character change ratio
+      const distance = levenshteinRatio(originalClean, correctedClean);
+
+      if (distance > 0.30) {
+        // More than 30% character change — Claude probably hallucinated
+        console.warn(`Segment ${i}: ${(distance * 100).toFixed(0)}% changed — rejected`);
+        return seg;
+      }
+
+      // Check 3: Word count guard — if Claude added/removed more than 1 word, suspicious
+      const origWordCount = seg.text.split(/\s+/).filter(w => w && !w.match(/^[.!?,;:]+$/)).length;
+      const corrWordCount = correction.text.split(/\s+/).filter(w => w && !w.match(/^[.!?,;:]+$/)).length;
+
+      if (Math.abs(origWordCount - corrWordCount) > 2) {
+        console.warn(`Segment ${i}: word count ${origWordCount}→${corrWordCount} — rejected`);
+        return seg;
+      }
+
+      // All checks passed — apply correction, KEEP original timestamps
+      return { ...seg, text: correction.text };
     });
 
     return { segments: fixed, method: "claude" };
@@ -298,23 +354,20 @@ Every input line MUST produce exactly one output line. No merging, no splitting,
   }
 }
 
-// Simple Levenshtein distance ratio (0 = identical, 1 = completely different)
+// Levenshtein distance ratio (0 = identical, 1 = completely different)
 function levenshteinRatio(a: string, b: string): number {
   if (a === b) return 0;
   if (!a.length) return 1;
   if (!b.length) return 1;
-
   const matrix: number[][] = [];
-  for (let i = 0; i <= a.length; i++) { matrix[i] = [i]; }
-  for (let j = 0; j <= b.length; j++) { matrix[0][j] = j; }
-
+  for (let i = 0; i <= a.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
   for (let i = 1; i <= a.length; i++) {
     for (let j = 1; j <= b.length; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
       matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost);
     }
   }
-
   return matrix[a.length][b.length] / Math.max(a.length, b.length);
 }
 
