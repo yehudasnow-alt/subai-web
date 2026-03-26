@@ -17,7 +17,7 @@ export default function Home() {
       <section className="hero">
         <div style={a(0)}><div className="hero-badge">✨ Whisper AI + Claude — תמלול וטקסט מושלמים</div></div>
         <h1 style={a(0.1)}>כתוביות AI בעברית<br /><span className="grad-text">ישירות בפרמייר פרו</span></h1>
-        <p className="hero-sub" style={a(0.2)}>תמלול אוטומטי בעברית, ערבית ואנגלית עם דיוק מרשים.<br />הכתוביות נכנסות ישירות לטיימליין — לחיצה אחת וזהו.</p>
+        <p className="hero-sub" style={a(0.2)}>תמלול אוטומטי בעברית, עם דיוק מרשים.<br />הכתוביות נכנסות ישירות לתוכנה — לחיצה אחת וזהו.</p>
         <div className="hero-btns" style={a(0.3)}>
           <Link href="/auth" className="btn-primary">התחל בחינם — 10 דקות מתנה</Link>
           <a href="#pricing" className="btn-ghost">ראה מחירים ←</a>
