@@ -90,7 +90,7 @@ export default function Dashboard() {
 
         {/* ── Quick Actions ── */}
         <div className="action-grid">
-          <a href="/SubAI_Setup.exe" className="action-card glass-card" style={{ borderRadius: 20, textDecoration: "none" }}>
+          <a href="https://github.com/yehudasnow-alt/subai-web/releases/download/v3.3/SubAI_Setup.exe" className="action-card glass-card" style={{ borderRadius: 20, textDecoration: "none" }}>
             <div className="ac-icon">⬇️</div>
             <div className="ac-title">הורד פלאגין</div>
             <div className="ac-desc">התקנה ל-Adobe Premiere Pro</div>
