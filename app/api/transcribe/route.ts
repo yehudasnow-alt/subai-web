@@ -627,86 +627,119 @@ function splitAtSentenceEnds(timedSegs: TimedSegment[]): Segment[] {
 
 // ── AUTO MODE: Smart split at natural breaks, respecting timing ──
 function smartAutoSplit(timedSegs: TimedSegment[]): Segment[] {
-  // First, collect all words
   const allWords: Word[] = [];
   for (const seg of timedSegs) {
     for (const w of seg.words) allWords.push(w);
   }
-
   if (allWords.length === 0) return timedSegs;
 
+  const SOFT_MAX = 42;  // Prefer to cut here
+  const HARD_MAX = 56;  // Never exceed this (allows +1-2 words to finish phrase)
+  const MAX_DUR = 5.0;  // Seconds
+
   const result: Segment[] = [];
-  let currentWords: Word[] = [];
-  let currentText = "";
+  let cur: Word[] = [];
+  let curText = "";
 
   for (let i = 0; i < allWords.length; i++) {
     const w = allWords[i];
-    const testText = currentText ? currentText + " " + w.word : w.word;
-    const testDuration = currentWords.length > 0
-      ? w.end - currentWords[0].start
-      : w.end - w.start;
+    const testText = curText ? curText + " " + w.word : w.word;
+    const testDur = cur.length > 0 ? w.end - cur[0].start : w.end - w.start;
 
-    // Should we cut here?
-    let shouldCut = false;
-    let cutReason = "";
+    // Always add word first, decide cut after
+    cur.push(w);
+    curText = testText;
 
-    // Rule 1: Current word ends with sentence punctuation
+    // ── Decide: should we cut AFTER this word? ──
+
+    // Rule 1: Sentence end — always cut
     if (/[.!?]$/.test(w.word.trim())) {
-      currentWords.push(w);
-      currentText = testText;
-      shouldCut = true;
-      cutReason = "sentence_end";
-    }
-    // Rule 2: Adding this word would exceed max chars
-    else if (testText.length > MAX_CHARS && currentWords.length > 0) {
-      shouldCut = true;
-      cutReason = "max_chars";
-      // Don't include this word — it goes to next segment
-    }
-    // Rule 3: Adding this word would exceed max duration
-    else if (testDuration > MAX_DURATION && currentWords.length > 0) {
-      shouldCut = true;
-      cutReason = "max_duration";
-    }
-    // Rule 4: Comma is a good break point if we're already over 20 chars
-    else if (/,$/.test(w.word.trim()) && currentText.length > 20) {
-      currentWords.push(w);
-      currentText = testText;
-      shouldCut = true;
-      cutReason = "comma";
-    }
-    else {
-      // No cut — add word to current group
-      currentWords.push(w);
-      currentText = testText;
+      flush(result, cur);
+      cur = []; curText = "";
+      continue;
     }
 
-    if (shouldCut && currentWords.length > 0) {
-      result.push({
-        start: currentWords[0].start,
-        end: currentWords[currentWords.length - 1].end,
-        text: currentWords.map(w => w.word).join(" "),
-      });
+    // Rule 2: Comma after 20+ chars — good break
+    if (/,$/.test(w.word.trim()) && curText.length > 20) {
+      flush(result, cur);
+      cur = []; curText = "";
+      continue;
+    }
 
-      // If we didn't include the current word (max_chars/max_duration), start new with it
-      if (cutReason === "max_chars" || cutReason === "max_duration") {
-        currentWords = [w];
-        currentText = w.word;
-      } else {
-        currentWords = [];
-        currentText = "";
+    // Rule 3: Over soft max — check if safe to cut
+    if (curText.length >= SOFT_MAX && cur.length >= 2) {
+      // Look ahead: is the NEXT word tightly bound to THIS word?
+      if (i + 1 < allWords.length && isBindForward(w, allWords[i + 1])) {
+        // Next word belongs with this one — DON'T cut yet, allow up to hard max
+        if (curText.length < HARD_MAX && testDur < MAX_DUR) {
+          continue; // Keep going, we'll cut after the bound word
+        }
       }
+      // Safe to cut here
+      flush(result, cur);
+      cur = []; curText = "";
+      continue;
+    }
+
+    // Rule 4: Hard max — must cut regardless
+    if (curText.length >= HARD_MAX || testDur >= MAX_DUR) {
+      flush(result, cur);
+      cur = []; curText = "";
+      continue;
     }
   }
 
-  // Flush remaining words
-  if (currentWords.length > 0) {
-    result.push({
-      start: currentWords[0].start,
-      end: currentWords[currentWords.length - 1].end,
-      text: currentWords.map(w => w.word).join(" "),
-    });
-  }
+  // Flush remaining
+  if (cur.length > 0) flush(result, cur);
+  return result;
+}
+
+function flush(result: Segment[], words: Word[]) {
+  if (words.length === 0) return;
+  result.push({
+    start: words[0].start,
+    end: words[words.length - 1].end,
+    text: words.map(w => w.word).join(" "),
+  });
+}
+
+// ── PHRASE BINDING: Should these two words stay together? ──
+function isBindForward(current: Word, next: Word): boolean {
+  const a = current.word.trim().replace(/[,.:;!?]+$/g, "");
+  const b = next.word.trim().replace(/[,.:;!?]+$/g, "");
+
+  // 1. Title + Name: הרב|יוסף, הגאון|הרב, מורנו|ורבנו, הרב|שמואלי
+  const titles = ["הרב","הגאון","הרבנית","מורנו","ורבנו","המקובל","הצדיק","ר'","רבי","דר","פרופ","מר","גב","עו\"ד"];
+  if (titles.includes(a)) return true;
+
+  // 2. Negation + Verb: לא|ירפו, אל|תלך, אין|חולי, בלי|סיבה
+  const negations = ["לא","אל","אין","בלי","ללא","אינו","אינה","אינם"];
+  if (negations.includes(a)) return true;
+
+  // 3. Construct state (סמיכות): יין|הישועות, שמות|הקודש, גן|עדן, בית|המקדש
+  // Hebrew: definite article ה on second word after non-ה first word
+  if (!a.startsWith("ה") && b.startsWith("ה") && b.length > 2) return true;
+
+  // 4. Preposition + next word: את|שמות, של|הרב, על|ביתכם, אל|הבית
+  const preps = ["את","של","על","אל","עם","בת","בן","כל","גם","רק","כי","אם","או","כמו"];
+  if (preps.includes(a)) return true;
+
+  // 5. Conjunction binding: ו prefix connects to next
+  if (a === "ו" || a === "וגם" || a === "אבל" || a === "אלא") return true;
+
+  // 6. Number + noun: שלוש|דקות, מאה|שנה
+  if (/^\d+$/.test(a) || ["אחת","שתיים","שלוש","ארבע","חמש","שש","שבע","שמונה","תשע","עשר","מאה","אלף","אלפים","מאות","שני","שלושה","ארבעה"].includes(a)) return true;
+
+  // 7. ש prefix split: if current is just "ש" bind to next
+  if (a === "ש" || a === "כש" || a === "לכש" || a === "מש") return true;
+
+  // 8. Name + Honorific abbreviation: יוסף|שליט"א, משה|זצ"ל, שמואלי|שליט"א
+  const bClean = b.replace(/[""״]/g, '"');
+  const honorifics = ['שליט"א', "שליטא", 'זצ"ל', "זצל", 'זיע"א', "זיעא", 'שלית"א', "שליט"];
+  if (honorifics.some(h => bClean === h || bClean.startsWith(h))) return true;
+
+  return false;
+}
 
   return result;
 }
