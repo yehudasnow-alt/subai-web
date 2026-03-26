@@ -343,15 +343,27 @@ One line per segment. No merging, splitting, or skipping.`;
       }
     }
 
+    // ── DEBUG: Log what Claude returned ──
+    console.log(`[AI] Claude returned ${corrected.length} segments (input: ${timedSegs.length})`);
+    
+    // Log every difference between original and corrected
+    for (const c of corrected) {
+      const orig = timedSegs[c.idx];
+      if (orig && orig.text.trim() !== c.text) {
+        console.log(`[AI] SEG ${c.idx} DIFF: "${orig.text.trim()}" → "${c.text}"`);
+      }
+    }
+
     // ── INTEGRITY CHECKS (multi-layer) ──
 
     // Check 1: Segment count integrity (±20%)
     if (corrected.length === 0 || Math.abs(corrected.length - timedSegs.length) > timedSegs.length * 0.2) {
-      console.warn(`Integrity fail: ${timedSegs.length} in → ${corrected.length} out`);
+      console.warn(`[AI] REJECTED ALL: segment count ${timedSegs.length} → ${corrected.length}`);
       return { segments: timedSegs, method: "integrity_fail" };
     }
 
     // Check 2: Per-segment Levenshtein guard
+    let acceptCount = 0, rejectCount = 0, noChangeCount = 0;
     const fixed = timedSegs.map((seg, i) => {
       const correction = corrected.find(c => c.idx === i);
       if (!correction) return seg;
@@ -362,6 +374,12 @@ One line per segment. No merging, splitting, or skipping.`;
 
       // If the actual words are identical (only punctuation changed), always accept
       if (originalClean === correctedClean) {
+        if (seg.text.trim() !== correction.text) {
+          console.log(`[AI] SEG ${i} PUNCTUATION ONLY: accepted`);
+          acceptCount++;
+        } else {
+          noChangeCount++;
+        }
         return { ...seg, text: correction.text };
       }
 
@@ -369,23 +387,28 @@ One line per segment. No merging, splitting, or skipping.`;
       const distance = levenshteinRatio(originalClean, correctedClean);
 
       if (distance > 0.30) {
-        // More than 30% character change — Claude probably hallucinated
-        console.warn(`Segment ${i}: ${(distance * 100).toFixed(0)}% changed — rejected`);
+        console.warn(`[AI] SEG ${i} REJECTED (${(distance * 100).toFixed(0)}% change): "${seg.text.trim()}" → "${correction.text}"`);
+        rejectCount++;
         return seg;
       }
 
-      // Check 3: Word count guard — if Claude added/removed more than 1 word, suspicious
+      // Check 3: Word count guard
       const origWordCount = seg.text.split(/\s+/).filter(w => w && !w.match(/^[.!?,;:]+$/)).length;
       const corrWordCount = correction.text.split(/\s+/).filter(w => w && !w.match(/^[.!?,;:]+$/)).length;
 
       if (Math.abs(origWordCount - corrWordCount) > 2) {
-        console.warn(`Segment ${i}: word count ${origWordCount}→${corrWordCount} — rejected`);
+        console.warn(`[AI] SEG ${i} REJECTED (words ${origWordCount}→${corrWordCount}): "${seg.text.trim()}" → "${correction.text}"`);
+        rejectCount++;
         return seg;
       }
 
-      // All checks passed — apply correction, KEEP original timestamps
+      // All checks passed
+      console.log(`[AI] SEG ${i} ACCEPTED (${(distance * 100).toFixed(0)}% change): "${seg.text.trim()}" → "${correction.text}"`);
+      acceptCount++;
       return { ...seg, text: correction.text };
     });
+
+    console.log(`[AI] SUMMARY: ${acceptCount} accepted, ${rejectCount} rejected, ${noChangeCount} unchanged`);
 
     return { segments: fixed, method: "claude" };
   } catch (e) {
