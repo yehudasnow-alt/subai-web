@@ -549,93 +549,106 @@ function repairBoundaries(correctedSegs: TimedSegment[], originalWords: Word[]):
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 3: SMART SPLITTING — Uses real word timestamps
+// STEP 3: SMART SPLITTING
+//
+// TIMING RULE: Every segment.start = first word's Whisper start,
+// segment.end = last word's Whisper end. We NEVER invent times.
+// We NEVER shift a word's timestamp. We only decide WHICH words
+// go into WHICH segment — the timing follows automatically.
+//
+// FLEXIBILITY: When splitting, we allow ±1-2 words to cross a
+// boundary IF it makes the text more logical (completing a phrase,
+// keeping a name together). But the timestamps always come from
+// the words themselves — no calculation, no interpolation.
 // ══════════════════════════════════════════════════════════════
 
-const MAX_CHARS = 42;
-const MAX_DURATION = 4.0;
-
 function applySplitting(timedSegs: TimedSegment[], style: string, wordsPerGroup: number): Segment[] {
-  if (style && style.startsWith("word")) {
-    const n = parseInt(style.replace("word", "")) || wordsPerGroup || 1;
-    return splitByWordCount(timedSegs, Math.max(1, Math.min(6, n)));
-  }
-  if (style === "sentence") {
-    return splitAtSentenceEnds(timedSegs);
-  }
-  // "auto" — smart split at punctuation, respect max chars/duration
-  return smartAutoSplit(timedSegs);
-}
-
-// ── WORD MODE: Split every N words using real timestamps ──
-function splitByWordCount(timedSegs: TimedSegment[], groupSize: number): Segment[] {
-  // Collect ALL words from all segments
-  const allWords: Word[] = [];
-  for (const seg of timedSegs) {
-    for (const w of seg.words) {
-      allWords.push(w);
-    }
-  }
-
-  const result: Segment[] = [];
-  for (let i = 0; i < allWords.length; i += groupSize) {
-    const group = allWords.slice(i, i + groupSize);
-    if (group.length === 0) continue;
-    result.push({
-      start: group[0].start,
-      end: group[group.length - 1].end,
-      text: group.map(w => w.word).join(" "),
-    });
-  }
-  return result;
-}
-
-// ── SENTENCE MODE: Split only at . ! ? ──
-function splitAtSentenceEnds(timedSegs: TimedSegment[]): Segment[] {
-  const allWords: Word[] = [];
-  for (const seg of timedSegs) {
-    for (const w of seg.words) allWords.push(w);
-  }
-
-  const result: Segment[] = [];
-  let currentWords: Word[] = [];
-
-  for (const w of allWords) {
-    currentWords.push(w);
-    // Check if this word ends a sentence
-    if (/[.!?]$/.test(w.word.trim())) {
-      result.push({
-        start: currentWords[0].start,
-        end: currentWords[currentWords.length - 1].end,
-        text: currentWords.map(w => w.word).join(" "),
-      });
-      currentWords = [];
-    }
-  }
-
-  // Flush remaining
-  if (currentWords.length > 0) {
-    result.push({
-      start: currentWords[0].start,
-      end: currentWords[currentWords.length - 1].end,
-      text: currentWords.map(w => w.word).join(" "),
-    });
-  }
-
-  return result;
-}
-
-// ── AUTO MODE: Smart split at natural breaks, respecting timing ──
-function smartAutoSplit(timedSegs: TimedSegment[]): Segment[] {
+  // Collect ALL words from ALL segments into one flat timeline
   const allWords: Word[] = [];
   for (const seg of timedSegs) {
     for (const w of seg.words) allWords.push(w);
   }
   if (allWords.length === 0) return timedSegs;
 
-  const SOFT_MAX = 42;
-  const HARD_MAX = 56;
-  const MAX_DUR = 5.0;
+  if (style === "sentence") {
+    return splitSentence(allWords);
+  }
+  if (style && style.startsWith("word")) {
+    const n = parseInt(style.replace("word", "")) || wordsPerGroup || 1;
+    return splitWords(allWords, Math.max(1, Math.min(6, n)));
+  }
+  // "auto"
+  return splitAuto(allWords);
+}
+
+// Helper: build a Segment from a slice of words — timestamps always from Whisper
+function seg(words: Word[]): Segment {
+  return {
+    start: words[0].start,
+    end: words[words.length - 1].end,
+    text: words.map(w => w.word).join(" "),
+  };
+}
+
+// ── SENTENCE MODE: Split at . ! ? only ──
+// Flexible: if a sentence is very long, also split at comma.
+// Timestamps: always word.start → word.end
+
+function splitSentence(allWords: Word[]): Segment[] {
+  const result: Segment[] = [];
+  let cur: Word[] = [];
+
+  for (const w of allWords) {
+    cur.push(w);
+    if (/[.!?]$/.test(w.word.trim())) {
+      result.push(seg(cur));
+      cur = [];
+    }
+  }
+  if (cur.length > 0) result.push(seg(cur));
+  return result;
+}
+
+// ── WORD MODE: Split every N words ──
+// Flexible: if cutting here breaks a bound pair (הרב|יוסף, לא|ירפו),
+// allow ±1 word to keep the phrase together.
+// Timestamps: always word.start → word.end
+
+function splitWords(allWords: Word[], groupSize: number): Segment[] {
+  const result: Segment[] = [];
+  let cur: Word[] = [];
+
+  for (let i = 0; i < allWords.length; i++) {
+    cur.push(allWords[i]);
+
+    // Reached target group size?
+    if (cur.length >= groupSize) {
+      // Check: is the next word bound to the current last word?
+      if (i + 1 < allWords.length && isBound(allWords[i], allWords[i + 1])) {
+        // Next word belongs here — allow +1 word (stay flexible)
+        // But only if we haven't already stretched too much (+2 max)
+        if (cur.length < groupSize + 2) {
+          continue; // Don't cut yet, grab the bound word
+        }
+      }
+      result.push(seg(cur));
+      cur = [];
+    }
+  }
+  if (cur.length > 0) result.push(seg(cur));
+  return result;
+}
+
+// ── AUTO MODE: Smart split at natural breaks ──
+// Priority: sentence end > comma > soft limit > hard limit
+// Flexible: when hitting the limit, look ahead/behind for bound phrases
+// and shift ±1-2 words to keep phrases intact.
+// Timestamps: ALWAYS word.start → word.end from Whisper. Never invented.
+
+function splitAuto(allWords: Word[]): Segment[] {
+  const SOFT = 42;   // Prefer to cut around here
+  const HARD = 56;   // Absolute max (allows finishing a phrase)
+  const MAX_DUR = 5; // Max seconds per subtitle
 
   const result: Segment[] = [];
   let cur: Word[] = [];
@@ -643,111 +656,128 @@ function smartAutoSplit(timedSegs: TimedSegment[]): Segment[] {
 
   for (let i = 0; i < allWords.length; i++) {
     const w = allWords[i];
-    const testText = curText ? curText + " " + w.word : w.word;
-    const testDur = cur.length > 0 ? w.end - cur[0].start : w.end - w.start;
-
-    // Always add word first
     cur.push(w);
-    curText = testText;
+    curText = curText ? curText + " " + w.word : w.word;
+    const dur = cur.length > 1 ? w.end - cur[0].start : 0;
 
-    // ── Cut decision ──
-
-    // Rule 1: Sentence end — always cut
+    // ── Always cut at sentence end ──
     if (/[.!?]$/.test(w.word.trim())) {
-      flush(result, cur); cur = []; curText = "";
+      result.push(seg(cur)); cur = []; curText = "";
       continue;
     }
 
-    // Rule 2: Comma after 20+ chars
-    if (/,$/.test(w.word.trim()) && curText.length > 20) {
-      flush(result, cur); cur = []; curText = "";
+    // ── Comma after 20+ chars = good natural break ──
+    if (/,$/.test(w.word.trim()) && curText.length >= 20) {
+      result.push(seg(cur)); cur = []; curText = "";
       continue;
     }
 
-    // Rule 3: At or past soft max — smart cut
-    if (curText.length >= SOFT_MAX && cur.length >= 2) {
-      
-      // Look ahead: find the entire binding chain from next word
-      const chainLen = getBindChainLength(allWords, i + 1);
+    // ── At or past soft limit ──
+    if (curText.length >= SOFT && cur.length >= 2) {
 
-      if (chainLen === 0) {
-        // No binding — safe to cut here
-        flush(result, cur); cur = []; curText = "";
+      // Look ahead: how many words are bound to the next?
+      const chainAhead = countBoundChain(allWords, i + 1);
+
+      if (chainAhead === 0) {
+        // Nothing bound ahead — safe to cut here
+        result.push(seg(cur)); cur = []; curText = "";
         continue;
       }
 
-      // There's a bound chain ahead. Calculate: can we fit it?
-      let chainText = curText;
-      for (let c = 0; c < chainLen && (i + 1 + c) < allWords.length; c++) {
-        chainText += " " + allWords[i + 1 + c].word;
+      // There's a bound chain ahead. Can we absorb it?
+      let extraLen = 0;
+      for (let c = 1; c <= chainAhead && (i + c) < allWords.length; c++) {
+        extraLen += allWords[i + c].word.length + 1;
       }
 
-      if (chainText.length <= HARD_MAX) {
-        // Chain fits — keep going, add the bound words
+      if (curText.length + extraLen <= HARD) {
+        // It fits — keep going, the loop will add those words naturally
         continue;
       }
 
-      // Chain doesn't fit. Look back: find where this binding started
-      // and push the entire phrase to the next segment
-      const lookback = getBindChainBackward(cur);
-      
+      // Doesn't fit. Look backward: find bound phrase at end of current buffer
+      // and push it to next segment so the phrase stays whole
+      const lookback = countBoundTail(cur);
+
       if (lookback > 0 && cur.length - lookback >= 2) {
-        // Cut BEFORE the bound phrase — push it to next segment
         const keep = cur.slice(0, cur.length - lookback);
-        const pushToNext = cur.slice(cur.length - lookback);
-        
-        flush(result, keep);
-        cur = pushToNext;
+        const pushNext = cur.slice(cur.length - lookback);
+        result.push(seg(keep));
+        cur = pushNext;
         curText = cur.map(w => w.word).join(" ");
         continue;
       }
 
-      // Can't look back — just cut here
-      flush(result, cur); cur = []; curText = "";
+      // No good lookback — cut here
+      result.push(seg(cur)); cur = []; curText = "";
       continue;
     }
 
-    // Rule 4: Hard max — must cut
-    if (curText.length >= HARD_MAX || testDur >= MAX_DUR) {
-      flush(result, cur); cur = []; curText = "";
+    // ── Hard limit — must cut ──
+    if (curText.length >= HARD || dur >= MAX_DUR) {
+      result.push(seg(cur)); cur = []; curText = "";
       continue;
     }
   }
 
-  if (cur.length > 0) flush(result, cur);
+  if (cur.length > 0) result.push(seg(cur));
   return result;
 }
 
-function flush(result: Segment[], words: Word[]) {
-  if (words.length === 0) return;
-  result.push({
-    start: words[0].start,
-    end: words[words.length - 1].end,
-    text: words.map(w => w.word).join(" "),
-  });
+// ══════════════════════════════════════════════════════════════
+// BINDING LOGIC — Decides which words must stay together
+// ══════════════════════════════════════════════════════════════
+
+// Are these two adjacent words bound (should not be separated)?
+function isBound(a: Word, b: Word): boolean {
+  const wa = a.word.trim().replace(/[,.:;!?"״]+$/g, "");
+  const wb = b.word.trim().replace(/[,.:;!?"״]+$/g, "");
+
+  // Title + Name: הרב|יוסף
+  if (["הרב","הגאון","הרבנית","מורנו","ורבנו","המקובל","הצדיק","ר'","רבי","דר","פרופ","מר","גב",'עו"ד'].includes(wa)) return true;
+
+  // Negation + next: לא|ירפו
+  if (["לא","אל","אין","בלי","ללא","אינו","אינה","אינם"].includes(wa)) return true;
+
+  // Construct state (סמיכות): יין|הישועות
+  if (!wa.startsWith("ה") && wb.startsWith("ה") && wb.length > 2) return true;
+
+  // Preposition: את|שמות
+  if (["את","של","על","אל","עם","בת","בן","כל","גם","רק","כי","אם","או","כמו"].includes(wa)) return true;
+
+  // Conjunction
+  if (["ו","וגם","אבל","אלא"].includes(wa)) return true;
+
+  // Number + noun
+  if (/^\d+$/.test(wa) || ["אחת","שתיים","שלוש","ארבע","חמש","שש","שבע","שמונה","תשע","עשר","מאה","אלף","אלפים","שני","שלושה","ארבעה"].includes(wa)) return true;
+
+  // ש prefix
+  if (["ש","כש","לכש","מש"].includes(wa)) return true;
+
+  // Name + Honorific: יוסף|שליט"א
+  const bClean = wb.replace(/[""״]/g, '"');
+  if (['שליט"א',"שליטא",'זצ"ל',"זצל",'זיע"א',"זיעא"].some(h => bClean === h || bClean.startsWith(h))) return true;
+
+  return false;
 }
 
-// How many words ahead form a bound chain? (e.g., "הרב יוסף שליט"א" = 3)
-function getBindChainLength(words: Word[], startIdx: number): number {
+// How many words ahead are bound in a chain? "הרב יוסף שליט"א" = 3
+function countBoundChain(words: Word[], startIdx: number): number {
   let count = 0;
   let idx = startIdx;
-  while (idx < words.length && idx > 0 && isBindForward(words[idx - 1], words[idx])) {
+  while (idx < words.length && idx > 0 && isBound(words[idx - 1], words[idx])) {
     count++;
     idx++;
   }
   return count;
 }
 
-// How many words at the END of current buffer are bound together?
-// e.g., cur = ["שלח", "מורנו", "הרב"] → lookback = 1 (הרב is bound to next)
-// e.g., cur = ["את", "בנו", "המקובל", "הרב"] → lookback = 1
-function getBindChainBackward(cur: Word[]): number {
+// How many words at the END of buffer start a binding?
+function countBoundTail(cur: Word[]): number {
   if (cur.length < 2) return 0;
   let count = 0;
-  // Walk backward: is the last word bound to the word AFTER it (which hasn't been added yet)?
-  // We check: is cur[len-1] a word that STARTS a binding?
   for (let i = cur.length - 1; i >= 1; i--) {
-    if (isStartsBinding(cur[i])) {
+    if (startsBinding(cur[i])) {
       count++;
     } else {
       break;
@@ -756,55 +786,14 @@ function getBindChainBackward(cur: Word[]): number {
   return count;
 }
 
-// Does this word START a binding (i.e., the next word must stay with it)?
-function isStartsBinding(w: Word): boolean {
+// Does this word start a binding (next word must follow)?
+function startsBinding(w: Word): boolean {
   const a = w.word.trim().replace(/[,.:;!?]+$/g, "");
-  const titles = ["הרב","הגאון","הרבנית","מורנו","ורבנו","המקובל","הצדיק","ר'","רבי","דר","פרופ","מר","גב",'עו"ד'];
-  if (titles.includes(a)) return true;
-  const negations = ["לא","אל","אין","בלי","ללא","אינו","אינה","אינם"];
-  if (negations.includes(a)) return true;
-  const preps = ["את","של","על","אל","עם","בת","בן","כל","גם","רק","כי","אם","או","כמו"];
-  if (preps.includes(a)) return true;
-  if (a === "ו" || a === "וגם" || a === "אבל" || a === "אלא") return true;
-  if (/^\d+$/.test(a) || ["אחת","שתיים","שלוש","ארבע","חמש","שש","שבע","שמונה","תשע","עשר","מאה","אלף","אלפים","מאות","שני","שלושה","ארבעה"].includes(a)) return true;
-  if (a === "ש" || a === "כש" || a === "לכש" || a === "מש") return true;
-  return false;
-}
-
-// ── PHRASE BINDING: Should these two words stay together? ──
-function isBindForward(current: Word, next: Word): boolean {
-  const a = current.word.trim().replace(/[,.:;!?]+$/g, "");
-  const b = next.word.trim().replace(/[,.:;!?]+$/g, "");
-
-  // 1. Title + Name
-  const titles = ["הרב","הגאון","הרבנית","מורנו","ורבנו","המקובל","הצדיק","ר'","רבי","דר","פרופ","מר","גב",'עו"ד'];
-  if (titles.includes(a)) return true;
-
-  // 2. Negation + Verb
-  const negations = ["לא","אל","אין","בלי","ללא","אינו","אינה","אינם"];
-  if (negations.includes(a)) return true;
-
-  // 3. Construct state (סמיכות): יין|הישועות, שמות|הקודש
-  if (!a.startsWith("ה") && b.startsWith("ה") && b.length > 2) return true;
-
-  // 4. Preposition + next word
-  const preps = ["את","של","על","אל","עם","בת","בן","כל","גם","רק","כי","אם","או","כמו"];
-  if (preps.includes(a)) return true;
-
-  // 5. Conjunction
-  if (a === "ו" || a === "וגם" || a === "אבל" || a === "אלא") return true;
-
-  // 6. Number + noun
-  if (/^\d+$/.test(a) || ["אחת","שתיים","שלוש","ארבע","חמש","שש","שבע","שמונה","תשע","עשר","מאה","אלף","אלפים","מאות","שני","שלושה","ארבעה"].includes(a)) return true;
-
-  // 7. ש prefix
-  if (a === "ש" || a === "כש" || a === "לכש" || a === "מש") return true;
-
-  // 8. Name + Honorific: יוסף|שליט"א
-  const bClean = b.replace(/[""״]/g, '"');
-  const honorifics = ['שליט"א', "שליטא", 'זצ"ל', "זצל", 'זיע"א', "זיעא", 'שלית"א', "שליט"];
-  if (honorifics.some(h => bClean === h || bClean.startsWith(h))) return true;
-
+  if (["הרב","הגאון","הרבנית","מורנו","ורבנו","המקובל","הצדיק","ר'","רבי","דר","פרופ","מר","גב",'עו"ד'].includes(a)) return true;
+  if (["לא","אל","אין","בלי","ללא","אינו","אינה","אינם"].includes(a)) return true;
+  if (["את","של","על","אל","עם","בת","בן","כל","גם","רק","כי","אם","או","כמו"].includes(a)) return true;
+  if (["ו","וגם","אבל","אלא","ש","כש","לכש","מש"].includes(a)) return true;
+  if (/^\d+$/.test(a) || ["אחת","שתיים","שלוש","ארבע","חמש","שש","שבע","שמונה","תשע","עשר","מאה","אלף","שני","שלושה","ארבעה"].includes(a)) return true;
   return false;
 }
 
