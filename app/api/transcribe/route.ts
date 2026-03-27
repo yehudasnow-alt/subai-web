@@ -1,6 +1,10 @@
 /**
- * SubAI — Transcription Engine v7.0
+ * SubAI — Transcription Engine v8.0
  * 
+ * ARCHITECTURE:
+ * Groq Whisper (sync, ~1s) → Claude AI correction → Smart splitting → SRT
+ * No polling, no cold start, no RunPod. Single synchronous request.
+ *
  * TIMING PHILOSOPHY:
  * Whisper gives us word-level timestamps that are accurate to ~50ms.
  * We NEVER calculate timing proportionally — we always use Whisper's real timestamps.
@@ -25,8 +29,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const AWS_REGION = process.env.AWS_REGION || "eu-north-1";
 const S3_BUCKET = process.env.S3_BUCKET || "subai-audio";
-const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY!;
-const RUNPOD_ENDPOINT_ID = process.env.RUNPOD_ENDPOINT_ID!;
+const GROQ_API_KEY = process.env.GROQ_API_KEY!;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
@@ -844,102 +847,110 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ upload_url: uploadUrl, download_url: downloadUrl, file_key: fileKey, remaining_minutes: remaining });
     }
 
-    // ── transcribe (start async job) ──
+    // ── transcribe (synchronous — Groq returns instantly) ──
     if (action === "transcribe") {
       const { download_url, file_key } = body;
       if (!download_url) return err("Missing download_url");
       const audioDurationSec = audio_duration || 0;
       if (Math.ceil(audioDurationSec / 60 * 10) / 10 > remaining) return err("לא מספיק דקות.", 403);
 
-      const rpResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`, {
+      // Step 0: Download audio from S3
+      console.log("[GROQ] Downloading audio from S3...");
+      const audioResponse = await fetch(download_url);
+      if (!audioResponse.ok) {
+        await logUsage(user.id, audioDurationSec, lang || "he", "whisper-large-v3", "failed", 0, 0, "S3 download failed");
+        return err("שגיאה בהורדת אודיו.", 500);
+      }
+      const audioBuffer = await audioResponse.arrayBuffer();
+      console.log(`[GROQ] Downloaded ${(audioBuffer.byteLength / 1024 / 1024).toFixed(1)}MB`);
+
+      // Step 1: Send to Groq Whisper (synchronous — ~1 second)
+      console.log("[GROQ] Sending to Whisper...");
+      const t0 = Date.now();
+
+      const formData = new FormData();
+      formData.append("file", new Blob([audioBuffer], { type: "audio/mpeg" }), "audio.mp3");
+      formData.append("model", "whisper-large-v3");
+      formData.append("response_format", "verbose_json");
+      formData.append("language", lang === "auto" ? "" : (lang || "he"));
+      formData.append("timestamp_granularities[]", "word");
+      formData.append("timestamp_granularities[]", "segment");
+
+      const groqResponse = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${RUNPOD_API_KEY}` },
-        body: JSON.stringify({
-          input: { audio_url: download_url, lang: lang || "he", model: model || "large-v3", offset: offset || 0, format: "json" },
-        }),
+        headers: { "Authorization": `Bearer ${GROQ_API_KEY}` },
+        body: formData,
       });
 
-      if (!rpResponse.ok) {
-        await logUsage(user.id, audioDurationSec, lang || "he", model || "large-v3", "failed", 0, 0, await rpResponse.text());
-        return err("שרת התמלול לא זמין.", 502);
+      if (!groqResponse.ok) {
+        const groqErr = await groqResponse.text();
+        console.error("[GROQ] Error:", groqErr);
+        await logUsage(user.id, audioDurationSec, lang || "he", "whisper-large-v3", "failed", 0, 0, groqErr);
+        return err("שגיאת תמלול. נסה שוב.", 502);
       }
 
-      const rpResult = await rpResponse.json();
-      if (!rpResult.id) return err("שגיאה בהפעלת תמלול", 500);
-      return NextResponse.json({ ok: true, action: "job_started", job_id: rpResult.id, file_key, audio_duration: audioDurationSec });
+      const groqResult = await groqResponse.json();
+      const whisperMs = Date.now() - t0;
+      console.log(`[GROQ] Whisper completed in ${whisperMs}ms — ${groqResult.segments?.length || 0} segments, ${groqResult.words?.length || 0} words`);
+
+      // Extract segments and words from Groq response
+      const rawSegments: Segment[] = (groqResult.segments || []).map((s: any) => ({
+        start: s.start, end: s.end, text: (s.text || "").trim(),
+      }));
+      const rawWords: Word[] = (groqResult.words || []).map((w: any) => ({
+        start: w.start, end: w.end, word: (w.word || "").trim(),
+      }));
+
+      if (rawSegments.length === 0) {
+        await logUsage(user.id, audioDurationSec, lang || "he", "whisper-large-v3", "empty", 0, 0);
+        return err("לא נמצא דיבור.", 200);
+      }
+
+      // ═══ THE ENGINE (unchanged) ═══
+
+      // Step 2: Build timed segments (attach words to segments)
+      const timedSegs = buildTimedSegments(rawSegments, rawWords);
+
+      // Step 3: AI Correction (Claude — surgical proofreading)
+      const aiResult = await aiCorrect(timedSegs, lang || "he");
+
+      // Step 3.5: Rebuild word-timestamp mapping after correction
+      const repairedSegs = repairBoundaries(aiResult.segments, rawWords);
+
+      // Step 4: Split according to user's chosen style
+      const wpg = parseInt(words_per_group) || 1;
+      const finalSegments = applySplitting(repairedSegs, caption_style || "auto", wpg);
+
+      // Step 5: Build SRT (with RTL)
+      const srt = buildSrt(finalSegments, lang || "he");
+
+      // Step 6: Log & deduct
+      const totalMs = Date.now() - t0;
+      const mins = await logUsage(user.id, audioDurationSec, lang || "he", "whisper-large-v3", "completed", finalSegments.length, totalMs / 1000);
+      await deductMinutes(user.id, mins);
+
+      // Cleanup S3
+      if (file_key) s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: file_key })).catch(() => {});
+
+      console.log(`[DONE] ${finalSegments.length} segments, ${totalMs}ms total (Whisper: ${whisperMs}ms, Claude: ${totalMs - whisperMs}ms)`);
+
+      return NextResponse.json({
+        ok: true, status: "completed",
+        segments: finalSegments, srt,
+        language: groqResult.language || lang,
+        elapsed: (totalMs / 1000).toFixed(1),
+        count: finalSegments.length,
+        minutes_charged: mins,
+        minutes_remaining: remaining - mins,
+        ai_correction: aiResult.method,
+      });
     }
 
-    // ── check_job (polled every 3s by plugin) ──
+    // ── check_job (backward compat — returns completed immediately) ──
     if (action === "check_job") {
-      const { job_id, file_key } = body;
-      if (!job_id) return err("Missing job_id");
-
-      const rpResponse = await fetch(`https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/status/${job_id}`, {
-        headers: { "Authorization": `Bearer ${RUNPOD_API_KEY}` },
-      });
-      if (!rpResponse.ok) return NextResponse.json({ ok: true, status: "processing" });
-
-      const rpResult = await rpResponse.json();
-
-      if (rpResult.status === "IN_QUEUE" || rpResult.status === "IN_PROGRESS") {
-        return NextResponse.json({ ok: true, status: "processing" });
-      }
-
-      if (rpResult.status === "FAILED") {
-        const errMsg = rpResult.output?.error || rpResult.error || "Unknown";
-        await logUsage(user.id, audio_duration || 0, lang || "he", model || "large-v3", "failed", 0, 0, errMsg);
-        return err("שגיאת תמלול: " + errMsg, 500);
-      }
-
-      if (rpResult.status === "COMPLETED") {
-        const output = rpResult.output || {};
-        const rawSegments: Segment[] = output.segments || [];
-        const rawWords: Word[] = output.words || [];
-        const audioDurationSec = audio_duration || 0;
-
-        if (rawSegments.length === 0) {
-          await logUsage(user.id, audioDurationSec, lang || "he", model || "large-v3", "empty", 0, 0);
-          return err("לא נמצא דיבור.", 200);
-        }
-
-        // ═══ THE ENGINE ═══
-
-        // Step 1: Build timed segments (attach words to segments)
-        const timedSegs = buildTimedSegments(rawSegments, rawWords);
-
-        // Step 2: AI Correction (surgical proofreading — preserves timing)
-        const aiResult = await aiCorrect(timedSegs, lang || "he");
-
-        // Step 2.5: Rebuild global word-timestamp mapping after AI correction
-        // This fixes sentence boundary issues where Claude moved words between segments
-        const repairedSegs = repairBoundaries(aiResult.segments, rawWords);
-
-        // Step 3: Split according to user's chosen style (using real word timestamps)
-        const wpg = parseInt(words_per_group) || 1;
-        const finalSegments = applySplitting(repairedSegs, caption_style || "auto", wpg);
-
-        // Step 4: Build SRT
-        const srt = buildSrt(finalSegments, lang || "he");
-
-        // Step 5: Log & deduct
-        const mins = await logUsage(user.id, audioDurationSec, lang || "he", model || "large-v3", "completed", finalSegments.length, 0);
-        await deductMinutes(user.id, mins);
-
-        if (file_key) s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: file_key })).catch(() => {});
-
-        return NextResponse.json({
-          ok: true, status: "completed",
-          segments: finalSegments, srt,
-          language: output.language || lang,
-          elapsed: output.elapsed,
-          count: finalSegments.length,
-          minutes_charged: mins,
-          minutes_remaining: remaining - mins,
-          ai_correction: aiResult.method,
-        });
-      }
-
-      return NextResponse.json({ ok: true, status: "processing" });
+      // Groq is synchronous — if we get here, the old plugin is polling
+      // Tell it to retry with "transcribe" action
+      return NextResponse.json({ ok: true, status: "completed", message: "Upgrade plugin — Groq is synchronous" });
     }
 
     // ── status ──
