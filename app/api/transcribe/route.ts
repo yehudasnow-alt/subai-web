@@ -2,7 +2,7 @@
  * SubAI — Transcription Engine v8.0
  * 
  * ARCHITECTURE:
- * Groq Whisper (sync, ~2s) → Claude AI correction → Smart splitting → RTL SRT
+ * Modal Whisper (sync, ~2s) → Claude AI correction → Smart splitting → RTL SRT
  * No polling, no cold start. Single synchronous request.
  *
  * TIMING: Every timestamp comes from Whisper. We never invent times.
@@ -20,7 +20,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const AWS_REGION = process.env.AWS_REGION || "eu-north-1";
 const S3_BUCKET = process.env.S3_BUCKET || "subai-audio";
-const GROQ_API_KEY = process.env.GROQ_API_KEY!;
+const MODAL_ENDPOINT = process.env.MODAL_ENDPOINT_URL!; // e.g. https://your--subai-whisper-whispertranscriber-transcribe.modal.run
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
@@ -617,55 +617,39 @@ export async function POST(req: NextRequest) {
       const audioDur = audio_duration || 0;
       if (Math.ceil(audioDur / 60 * 10) / 10 > remaining) return err("לא מספיק דקות.", 403);
 
-      // ── STEP 0: Download audio from S3 ──
-      console.log("[GROQ] Downloading audio...");
-      const audioRes = await fetch(download_url);
-      if (!audioRes.ok) {
-        await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "failed", 0, 0, "S3 download failed");
-        return err("שגיאה בהורדת אודיו.", 500);
-      }
-      const audioBuf = await audioRes.arrayBuffer();
-
-      // ── STEP 1: Groq Whisper (optimized for Hebrew) ──
-      console.log(`[GROQ] Sending ${(audioBuf.byteLength / 1024 / 1024).toFixed(1)}MB to Whisper...`);
+      // ── STEP 1: Modal Whisper (full VAD control, Hebrew optimized) ──
+      console.log("[MODAL] Sending to Whisper...");
       const t0 = Date.now();
 
-      const fd = new FormData();
-      fd.append("file", new Blob([audioBuf], { type: "audio/mpeg" }), "audio.mp3");
-      fd.append("model", "whisper-large-v3");
-      fd.append("response_format", "verbose_json");
-      fd.append("timestamp_granularities[]", "word");
-      fd.append("timestamp_granularities[]", "segment");
-      // Hebrew: explicit language for best accuracy
-      if (lang && lang !== "auto") fd.append("language", lang);
-      // Quality prompt: guides Whisper to produce proper Hebrew with punctuation
-      if (lang === "he") {
-        fd.append("prompt", "שלום, זהו תמלול מקצועי בעברית תקנית. סימני פיסוק: נקודה, פסיק, סימן שאלה. שמות אנשים, מקומות ומונחים מקצועיים נכתבים במדויק.");
-      } else if (lang === "ar") {
-        fd.append("prompt", "نسخ احترافي باللغة العربية مع علامات ترقيم صحيحة.");
-      }
-      // temperature 0 = most deterministic, least hallucinations
-      fd.append("temperature", "0");
-
-      const groqRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+      const modalRes = await fetch(MODAL_ENDPOINT, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${GROQ_API_KEY}` },
-        body: fd,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          audio_url: download_url,
+          lang: lang || "he",
+        }),
       });
 
-      if (!groqRes.ok) {
-        const ge = await groqRes.text();
-        console.error("[GROQ] Error:", ge);
-        await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "failed", 0, 0, ge);
+      if (!modalRes.ok) {
+        const me = await modalRes.text();
+        console.error("[MODAL] Error:", me);
+        await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "failed", 0, 0, me);
         return err("שגיאת תמלול.", 502);
       }
 
-      const gr = await groqRes.json();
+      const mr = await modalRes.json();
       const whisperMs = Date.now() - t0;
-      console.log(`[GROQ] Done in ${whisperMs}ms — ${gr.segments?.length || 0} segs, ${gr.words?.length || 0} words`);
 
-      const rawSegs: Segment[] = (gr.segments || []).map((s: any) => ({ start: s.start, end: s.end, text: (s.text || "").trim() }));
-      const rawWords: Word[] = (gr.words || []).map((w: any) => ({ start: w.start, end: w.end, word: (w.word || "").trim() }));
+      if (mr.error) {
+        console.error("[MODAL] Whisper error:", mr.error);
+        await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "failed", 0, 0, mr.error);
+        return err("שגיאת תמלול: " + mr.error, 500);
+      }
+
+      console.log(`[MODAL] Done in ${whisperMs}ms — ${mr.segments?.length || 0} segs, ${mr.words?.length || 0} words`);
+
+      const rawSegs: Segment[] = (mr.segments || []).map((s: any) => ({ start: s.start, end: s.end, text: (s.text || "").trim() }));
+      const rawWords: Word[] = (mr.words || []).map((w: any) => ({ start: w.start, end: w.end, word: (w.word || "").trim() }));
 
       if (rawSegs.length === 0) {
         await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "empty", 0, 0);
@@ -708,14 +692,14 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         ok: true, status: "completed", segments: final, srt,
-        language: gr.language || lang, elapsed: (totalMs / 1000).toFixed(1),
+        language: mr.language || lang, elapsed: (totalMs / 1000).toFixed(1),
         count: final.length, minutes_charged: mins,
         minutes_remaining: remaining - mins, ai_correction: aiResult.method,
       });
     }
 
     if (action === "check_job") {
-      return NextResponse.json({ ok: true, status: "completed", message: "Groq is synchronous" });
+      return NextResponse.json({ ok: true, status: "completed", message: "Modal is synchronous" });
     }
 
     if (action === "status") {
