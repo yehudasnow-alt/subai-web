@@ -121,6 +121,90 @@ function isGarbageSegment(text: string): boolean {
   return (latin + greek + symbols) / total > 0.3;
 }
 
+// ── Whisper Hallucination Filter ──
+// Detects and removes segments where Whisper got "stuck" or hallucinated:
+// 1. Same word/phrase repeated for a long duration
+// 2. Single word lasting more than 5 seconds
+// 3. Segment with very long duration but very few unique words
+// 4. Duplicate consecutive segments (exact same text)
+// 5. Segments that are just the initial prompt leaking through
+
+function filterHallucinations(segments: Segment[], words: Word[], prompt: string): { segments: Segment[]; words: Word[] } {
+  const filtered: Segment[] = [];
+  const filteredWords: Word[] = [];
+  let removedCount = 0;
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    const dur = seg.end - seg.start;
+    const text = seg.text.trim();
+    const textWords = text.split(/\s+/).filter(w => w);
+    const uniqueWords = new Set(textWords.map(w => w.replace(/[.!?,;:]/g, ""))).size;
+
+    let skip = false;
+    let reason = "";
+
+    // 1. Very long segment with very few unique words (stuck/looping)
+    if (dur > 5 && uniqueWords <= 2 && textWords.length >= 3) {
+      skip = true;
+      reason = `stuck loop: ${dur.toFixed(1)}s, ${uniqueWords} unique words`;
+    }
+
+    // 2. Single word lasting more than 6 seconds
+    if (dur > 6 && textWords.length <= 1) {
+      skip = true;
+      reason = `single word ${dur.toFixed(1)}s`;
+    }
+
+    // 3. Very long duration with very little content (hallucinated silence)
+    if (dur > 10 && textWords.length <= 3) {
+      skip = true;
+      reason = `too long for content: ${dur.toFixed(1)}s, ${textWords.length} words`;
+    }
+
+    // 4. Exact duplicate of previous segment
+    if (i > 0 && text === segments[i - 1].text.trim()) {
+      skip = true;
+      reason = "exact duplicate";
+    }
+
+    // 5. Prompt leak — segment is just the initial prompt or part of it
+    if (prompt && text.length > 5) {
+      const cleanText = text.replace(/[.!?,;:\s]/g, "");
+      const cleanPrompt = prompt.replace(/[.!?,;:\s]/g, "");
+      if (cleanPrompt.includes(cleanText) || cleanText.includes(cleanPrompt)) {
+        skip = true;
+        reason = "prompt leak";
+      }
+    }
+
+    // 6. Repeating pattern: same 1-2 words repeated 3+ times
+    if (textWords.length >= 4 && uniqueWords <= 2) {
+      skip = true;
+      reason = `repeating pattern: "${textWords.slice(0, 3).join(" ")}..."`;
+    }
+
+    if (skip) {
+      console.log(`[FILTER] Removed seg ${i} (${reason}): "${text.substring(0, 40)}${text.length > 40 ? "..." : ""}"`);
+      removedCount++;
+    } else {
+      filtered.push(seg);
+    }
+  }
+
+  // Filter words: keep only words that fall within remaining segments
+  if (removedCount > 0 && words.length > 0) {
+    for (const w of words) {
+      const inFiltered = filtered.some(s => w.start >= s.start - 0.1 && w.start < s.end + 0.1);
+      if (inFiltered) filteredWords.push(w);
+    }
+    console.log(`[FILTER] Removed ${removedCount} hallucinated segments, kept ${filtered.length}. Words: ${words.length}→${filteredWords.length}`);
+    return { segments: filtered, words: filteredWords };
+  }
+
+  return { segments, words };
+}
+
 async function aiCorrect(timedSegs: TimedSegment[], language: string): Promise<{ segments: TimedSegment[]; method: string }> {
   if (!ANTHROPIC_API_KEY || timedSegs.length === 0) {
     return { segments: timedSegs, method: "none" };
@@ -588,8 +672,17 @@ export async function POST(req: NextRequest) {
         return err("לא נמצא דיבור.", 200);
       }
 
+      // ── STEP 1.5: Filter Whisper hallucinations ──
+      const hePrompt = lang === "he" ? "שלום, זהו תמלול מקצועי בעברית תקנית. סימני פיסוק: נקודה, פסיק, סימן שאלה. שמות אנשים, מקומות ומונחים מקצועיים נכתבים במדויק." : "";
+      const cleaned = filterHallucinations(rawSegs, rawWords, hePrompt);
+
+      if (cleaned.segments.length === 0) {
+        await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "empty", 0, 0);
+        return err("לא נמצא דיבור.", 200);
+      }
+
       // ── STEP 2: Build timed segments ──
-      const timedSegs = buildTimedSegments(rawSegs, rawWords);
+      const timedSegs = buildTimedSegments(cleaned.segments, cleaned.words);
 
       // ── STEP 3: Claude AI correction ──
       const aiResult = await aiCorrect(timedSegs, lang || "he");
