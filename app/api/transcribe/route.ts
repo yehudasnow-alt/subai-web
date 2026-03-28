@@ -14,7 +14,7 @@ import { createClient } from "@supabase/supabase-js";
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -135,19 +135,19 @@ async function aiCorrect(timedSegs: TimedSegment[], language: string): Promise<{
 
     const systemPrompt = `You are a contextual prediction engine for ${langName} transcription repair.
 
-IMPORTANT: You MUST process and return EVERY segment. Never skip segments. If a segment is correct, return it unchanged. Every input line produces exactly one output line.
+CRITICAL: You MUST process and return EVERY segment — no exceptions. If a segment is correct, return it UNCHANGED. If you are unsure, return it UNCHANGED. Every input line produces exactly one output line. Skipping a segment = system failure.
 
 YOUR METHOD — PREDICTIVE CONTEXT:
 Read the ENTIRE text first. Build a mental model of topic, speakers, names, terms.
 Then for EACH word: predict what SHOULD be there → compare with Whisper → fix only if IMPOSSIBLE.
 
 PHASE 1 — DEEP CONTEXT SCAN:
-A) TOPIC MAP: religion/tech/cooking/law/sports/casual?
-B) SPEAKER PROFILE: formal/casual, age, jargon, accent
+A) TOPIC MAP: religion/tech/cooking/law/sports/casual/politics/military/education?
+B) SPEAKER PROFILE: formal/casual, age, ethnicity, jargon, accent
 C) NAME REGISTRY: all names, places, brands — NEVER change these
 D) TERM GLOSSARY: domain words that repeat
 E) FIXED EXPRESSIONS: phrase pairs that must appear together
-F) ABBREVIATIONS: words that are actually abbreviations
+F) ABBREVIATIONS: words that are actually abbreviations with גרשיים
 
 PHASE 2 — PREDICTIVE REPAIR:
 For each word: MASK → PREDICT from context → COMPARE with Whisper.
@@ -156,43 +156,75 @@ For each word: MASK → PREDICT from context → COMPARE with Whisper.
 - Prediction ≠ Whisper, and Whisper is IMPOSSIBLE in context → FIX
 
 PHASE 3 — GARBAGE DETECTION:
-If a segment contains Latin letters, Greek, symbols, or nonsense characters mixed with Hebrew,
-this is a Whisper failure. Try to reconstruct what was LIKELY said from surrounding context.
-If you can't reconstruct with 90%+ confidence, return the segment unchanged.
+If a segment has Latin, Greek, symbols, or nonsense mixed with Hebrew — this is Whisper failure.
+Try to reconstruct from surrounding context. If <90% confident, return segment unchanged.
 
 PHASE 4 — ${langName} INTELLIGENCE:
 ${language === "he" ? `
-SOUND PAIRS: א↔ע, ה↔ח, כ↔ק, ט↔ת, ס↔ש, ב↔פ — fix only when context makes it clear.
-ABBREVIATIONS: שליטה→שליט"א, זצל→זצ"ל, הרשש→הרש"ש, תנך→תנ"ך
-FIXED PHRASES: בקדושה ובטהרה, נושעו ונרפאו, חס ושלום, ברוך השם
-PHANTOM LETTERS: האישועות→הישועות (phantom א)
-CONSTRUCT STATE: יין+הישועות, שמות+הקודש, גן+עדן
-CULTURAL KNOWLEDGE: You know Israeli/Jewish culture — rabbis, Torah, Talmud, holidays,
-prayers, synagogues, yeshivot, kibbutzim, IDF terms, political parties, cities,
-neighborhoods, foods (falafel/hummus/shakshuka), slang (יאללה/וואלה/אחלה/סבבה),
-Moroccan/Iraqi/Yemenite/Ashkenazi traditions, historical figures.
+SOUND CONFUSION PAIRS — fix ONLY when context makes it clear:
+א↔ע: נושאו↔נושעו, אמוק↔עמוק, אל↔על, אישועות↔ישועות
+ה↔ח: טהרה↔תהרה, הולך↔חולך, חס↔הס
+כ↔ק: כלב↔קלב, כהתה↔קהתה
+ט↔ת: טוב↔תוב, טהרה↔תהרה
+ס↔ש: סיפור↔שיפור, סגר↔שגר
+ב↔פ: חביות↔חוויות, בעיה↔פעיה
+
+ABBREVIATIONS WITH גרשיים:
+שליטה/שליט → שליט"א | זצל/זצ ל → זצ"ל | זיעא → זיע"א
+הרשש → הרש"ש | הרמבם → הרמב"ם | תנך → תנ"ך | בהמק → בהמ"ק
+
+FIXED EXPRESSIONS (both halves confirm each other):
+בקדושה ובטהרה | נושעו ונרפאו | חס ושלום | ברוך השם | בעזרת השם
+לרפואה שלמה | כהתה עינו ולא נס ליחו | בשורות טובות | מזל טוב
+יהי רצון | אם ירצה השם | שיבנה בית המקדש | זכר צדיק לברכה
+
+PHANTOM LETTERS — Whisper adds phantom א/ה:
+האישועות → הישועות | ואישועה → וישועה | אהולך → הולך
+
+CONSTRUCT STATE (סמיכות) — keep together:
+יין+הישועות | שמות+הקודש | גן+עדן | בית+המקדש | מערת+המכפלה
+
+ISRAELI SLANG & CULTURE — these are CORRECT, not errors:
+Slang: יאללה, וואלה, אחלה, סבבה, באסה, חלאס, תכלס, פאדיחה, מאפו, ג'ובה, כוסית
+Filler: כאילו, אממ, אה, נו, אז, בקיצור, בעצם, סתם, פשוט
+Food: חומוס, פלאפל, שקשוקה, ג'חנון, מלוואח, קובה, חריימה, ציגר
+Cities: ת"א, ב"ש, ירושלים, חיפה, נתניה, רמת גן, פ"ת, ר"ג, כ"ס
+Military: צה"ל, חובשים, טירונות, קצינים, גדוד, חטיבה, מילואים, צו 8
+Religion: בימ"ד, ביהכנ"ס, ס"ת, פרשת השבוע, הלכה, מנהג, עליה לתורה
+Ethnic terms: ספרדי, אשכנזי, מזרחי, תימני, מרוקאי, עיראקי, אתיופי
+Historical: השואה, העלייה, תקופת המנדט, מלחמת העצמאות
+
+NUMBERS: 300→3000 only if context clearly indicates thousands (e.g., "3000 תלמידים" vs "300 תלמידים").
+Do NOT change numbers unless Whisper clearly dropped/added a digit based on context.
+` : language === "ar" ? `
+Fix Arabic-specific Whisper errors. Respect dialect (MSA/Levantine/Egyptian/Gulf).
 ` : ""}
 
-PHASE 5 — PUNCTUATION: Add . , ? only at clear boundaries.
+PHASE 5 — PUNCTUATION: Add . , ? only at clear sentence boundaries.
 
-PHASE 6 — VERIFICATION:
-For EACH change: Is original IMPOSSIBLE? Is replacement the ONLY option? 99%+ certain?
-If NO → REVERT.
+PHASE 6 — VERIFICATION (for EACH change):
+□ Is Whisper's word IMPOSSIBLE in context? (YES required to change)
+□ Is my replacement the ONLY plausible word? (YES required)
+□ Am I 99%+ confident? (YES required)
+□ Did I accidentally swap a real word for a synonym? (NO required)
+□ Did I change the speaker's meaning? (NO required)
+If ANY check fails → REVERT to original.
 
-PROHIBITIONS:
-❌ No synonyms (גדול→עצום, הלך→צעד, לעשות→לטפל)
-❌ No style improvements
-❌ No word additions unless 99% certain gap
-❌ No filler removal (כאילו, אממ, אה)
-❌ No name changes
-❌ No structure changes
+ABSOLUTE PROHIBITIONS:
+❌ No synonyms (גדול→עצום, הלך→צעד, לעשות→לטפל, נדבר→נוצר)
+❌ No style improvements or rewrites
+❌ No word additions unless filling an obvious 1-word gap with 99% certainty
+❌ No filler word removal (כאילו, אממ, אה, נו are timing anchors)
+❌ No name/place changes
+❌ No sentence restructuring
 
-GOLDEN RULE: Real word that COULD fit → leave it. Fix ONLY impossible words.
+GOLDEN RULE: If Whisper's word is REAL and COULD make sense → leave it.
+Fix ONLY when the word is IMPOSSIBLE in context.
 
-FORMAT: [index|start-end] text — one per line, NO skipping.`;
+OUTPUT: [index|start-end] text — one line per segment, every segment, no skipping.`;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
+    const timeout = setTimeout(() => controller.abort(), 50000); // 50s — enough for 100+ segments
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -280,10 +312,10 @@ FORMAT: [index|start-end] text — one per line, NO skipping.`;
     return { segments: fixed, method: "claude" };
   } catch (e: any) {
     if (e.name === "AbortError") {
-      console.warn("[AI] Claude timeout (20s) — using original text");
+      console.warn(`[AI] Claude timeout (50s) for ${timedSegs.length} segments — using Whisper original`);
       return { segments: timedSegs, method: "timeout_fallback" };
     }
-    console.error("[AI] Error:", e);
+    console.error("[AI] Error:", e.message || e);
     return { segments: timedSegs, method: "error_fallback" };
   }
 }
@@ -386,7 +418,7 @@ function splitWords(all: Word[], gs: number): Segment[] {
 }
 
 function splitAuto(all: Word[]): Segment[] {
-  const SOFT = 42, HARD = 56, MAXD = 5;
+  const SOFT = 38, HARD = 50, MAXD = 4;
   const r: Segment[] = []; let c: Word[] = []; let ct = "";
 
   for (let i = 0; i < all.length; i++) {
@@ -520,11 +552,15 @@ export async function POST(req: NextRequest) {
       fd.append("response_format", "verbose_json");
       fd.append("timestamp_granularities[]", "word");
       fd.append("timestamp_granularities[]", "segment");
-      // Hebrew optimization: guide Whisper with language + prompt
+      // Hebrew: explicit language for best accuracy
       if (lang && lang !== "auto") fd.append("language", lang);
+      // Quality prompt: guides Whisper to produce proper Hebrew with punctuation
       if (lang === "he") {
-        fd.append("prompt", "תמלול מקצועי בעברית עם סימני פיסוק. שמות, מקומות ומונחים מקצועיים.");
+        fd.append("prompt", "שלום, זהו תמלול מקצועי בעברית תקנית. סימני פיסוק: נקודה, פסיק, סימן שאלה. שמות אנשים, מקומות ומונחים מקצועיים נכתבים במדויק.");
+      } else if (lang === "ar") {
+        fd.append("prompt", "نسخ احترافي باللغة العربية مع علامات ترقيم صحيحة.");
       }
+      // temperature 0 = most deterministic, least hallucinations
       fd.append("temperature", "0");
 
       const groqRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
