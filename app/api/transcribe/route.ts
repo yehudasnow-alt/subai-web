@@ -195,27 +195,39 @@ async function aiCorrect(timedSegs: TimedSegment[], language: string): Promise<{
       `[${i}|${s.start.toFixed(2)}-${s.end.toFixed(2)}] ${s.text}`
     ).join("\n");
 
-    // ── Surgical correction prompt ──
-    // Philosophy: Claude already masters Hebrew. We don't teach it the language.
-    // We only define the operation: what to fix, what to never touch, and why.
-    const systemPrompt = `אתה מתמלל בכיר המתמחה בתיקון שגיאות זיהוי קול. קיבלת תמלול שנוצר על ידי Whisper.
+    // ── Context-aware surgical prompt ──
+    //
+    // Philosophy:
+    //   Claude already masters Hebrew at a native level — we don't teach it the language.
+    //   We activate its full attention mechanism by instructing it to read the entire
+    //   transcript first, then use that global context to decide on each word.
+    //
+    //   The hard constraint: fix only the letters inside the existing word (phonetic
+    //   errors, missing/extra characters, homophones). Never swap a word for a synonym
+    //   or a "better" word — even if it sounds more natural. The source is Whisper;
+    //   every word it produced was actually spoken. We only repair the transcription
+    //   of that word, not the speaker's choice of word.
+    const systemPrompt = `אתה מתמלל בכיר המתמחה בתיקון שגיאות זיהוי קול אוטומטי (Whisper) בעברית.
 
-שלב א — הבנת ההקשר:
-לפני כל תיקון, קרא את התמלול המלא. זהה את הנושא, הדוברים והמשלב הלשוני. ההקשר הכולל הוא הכלי העיקרי שלך לתיקון — לא רשימות כללים.
+שלב א — קריאה מלאה לפני הכל:
+קרא את התמלול המלא שסופק לך. זהה את הנושא, הדוברים, המשלב הלשוני, שמות חוזרים ומושגים מקצועיים. ההקשר הכולל הוא הכלי העיקרי שלך — לא רשימות כללים.
 
-שלב ב — תיקון כירורגי בלבד:
-תקן אך ורק שגיאות זיהוי קולי של Whisper: אות שגויה, ניקוד שגוי, מילה שנשמעת דומה אך שגויה בהקשר.
-דוגמאות לתיקון לגיטימי: "הלק" ← "הלך" / "קרא לו" ← "קרה לו" (אם ההקשר מחייב) / "אלגוריתם" שנכתב "אל גור איתם".
+שלב ב — תיקון מבוסס הקשר:
+עבור כל מילה שנראית שגויה, הסתכל על 5 המילים לפניה ו-5 המילים אחריה ושאל: "מה הנושא שמדובר עליו כאן, ומהי המילה שנשמעת דומה אך נכתבת נכון?"
+השגיאות של Whisper הן כמעט תמיד פונטיות: אות שגויה, אות חסרה, אות מיותרת, הומופון.
 
-גבולות ברזל — דברים שאסור לגעת בהם:
-- אל תחליף מילה במילה בעלת משמעות דומה, גם אם נשמעת טבעית יותר
-- אל תשנה סדר מילים או מבנה משפט
-- אל תוסיף מילים שלא היו ואל תמחק מילים שהיו
-- שמור על מילות מילוי בדיוק כפי שהן (כאילו, אממ, אה, נו, בעצם, פשוט, כזה) — הן נאמרו
+גבול ברזל אחד — מה שאסור בהחלט:
+תיקון לגיטימי: לתקן אותיות בתוך המילה שוויספר כתב (הלק→הלך, נכנוה→נכונה, קרא→קרה).
+אסור לחלוטין: להחליף מילה במילה אחרת בעלת משמעות דומה, גם אם נשמעת "יותר טבעית" (הלך→צעד, גדול→עצום, אמר→ציין).
+הדובר בחר את המילה שבחר — תפקידך לתקן את הכתיב של אותה מילה, לא לשנות את הבחירה שלו.
+
+כללים נוספים:
+- שמור על מילות מילוי בדיוק (כאילו, אממ, אה, נו, בעצם, פשוט, כזה) — הן נאמרו
 - אל תשנה שמות, מותגים, מושגים מקצועיים
-- אם שורה נראית תקינה ומתאימה להקשר — החזר אותה כצאתה, ללא שינוי
+- אל תוסיף מילים ואל תמחק מילים
+- אם השורה נכונה — החזר אותה כצאתה, ללא שינוי
 
-פורמט פלט: [index|start-end] text — שורה אחת לכל סגמנט, כל הסגמנטים, ללא הקדמות או הערות.`;
+פורמט פלט: [index|start-end] text — שורה אחת לכל סגמנט, כל הסגמנטים, ללא הקדמות.`;
 
     const userMessage = `תמלול מלא להבנת ההקשר — קרא לפני הכל:
 ===
