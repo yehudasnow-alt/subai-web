@@ -186,8 +186,8 @@ async function aiCorrect(timedSegs: TimedSegment[], language: string): Promise<{
   }
 
   try {
-    // ── Full plain-text transcript for context (no timestamps) ──
-    // Claude reads this first to understand the full conversation before correcting
+    // ── Full plain-text transcript — Claude reads this first to understand
+    //    the topic, speakers, register and recurring terms before touching anything ──
     const fullContext = timedSegs.map(s => s.text.trim()).join(" ");
 
     // ── Indexed segments for correction output ──
@@ -195,29 +195,34 @@ async function aiCorrect(timedSegs: TimedSegment[], language: string): Promise<{
       `[${i}|${s.start.toFixed(2)}-${s.end.toFixed(2)}] ${s.text}`
     ).join("\n");
 
-    const systemPrompt = `אתה מתמלל מקצועי של עברית מדוברת. קיבלת תמלול שנוצר על ידי זיהוי קול אוטומטי (Whisper).
+    // ── Surgical correction prompt ──
+    // Philosophy: Claude already masters Hebrew. We don't teach it the language.
+    // We only define the operation: what to fix, what to never touch, and why.
+    const systemPrompt = `אתה מתמלל בכיר המתמחה בתיקון שגיאות זיהוי קול. קיבלת תמלול שנוצר על ידי Whisper.
 
-תפקידך: לתקן שגיאות זיהוי בלבד — לא לשפר סגנון, לא לשנות מילים אמיתיות.
+שלב א — הבנת ההקשר:
+לפני כל תיקון, קרא את התמלול המלא. זהה את הנושא, הדוברים והמשלב הלשוני. ההקשר הכולל הוא הכלי העיקרי שלך לתיקון — לא רשימות כללים.
 
-חוקים מחייבים:
-- קרא את כל התמלול המלא לפני שאתה מתחיל לתקן — ההקשר הכולל קריטי להבנת התחום, השפה והדוברים
-- תקן רק מילה שבלתי אפשרי שנאמרה בהקשר הזה
-- אל תחליף מילה אמיתית במילה אחרת, גם אם נשמעת "יותר טובה"
-- שמור על מילות מילוי (כאילו, אממ, אה, נו, בעצם, פשוט) — הן נאמרו ומשמשות עוגני תזמון
-- אל תשנה שמות, מקומות, מותגים, תארים
+שלב ב — תיקון כירורגי בלבד:
+תקן אך ורק שגיאות זיהוי קולי של Whisper: אות שגויה, ניקוד שגוי, מילה שנשמעת דומה אך שגויה בהקשר.
+דוגמאות לתיקון לגיטימי: "הלק" ← "הלך" / "קרא לו" ← "קרה לו" (אם ההקשר מחייב) / "אלגוריתם" שנכתב "אל גור איתם".
+
+גבולות ברזל — דברים שאסור לגעת בהם:
+- אל תחליף מילה במילה בעלת משמעות דומה, גם אם נשמעת טבעית יותר
 - אל תשנה סדר מילים או מבנה משפט
-- אל תוסיף מילים שלא היו בסגמנט המקורי
-- אל תשנה טיימינגים — רק את הטקסט
-- החזר כל סגמנט — אל תדלג על אף שורה
+- אל תוסיף מילים שלא היו ואל תמחק מילים שהיו
+- שמור על מילות מילוי בדיוק כפי שהן (כאילו, אממ, אה, נו, בעצם, פשוט, כזה) — הן נאמרו
+- אל תשנה שמות, מותגים, מושגים מקצועיים
+- אם שורה נראית תקינה ומתאימה להקשר — החזר אותה כצאתה, ללא שינוי
 
-פורמט פלט: [index|start-end] text — שורה אחת לכל סגמנט, בדיוק כמו הקלט.`;
+פורמט פלט: [index|start-end] text — שורה אחת לכל סגמנט, כל הסגמנטים, ללא הקדמות או הערות.`;
 
-    const userMessage = `להלן התמלול המלא לצורך הבנת ההקשר — קרא אותו לפני הכל:
+    const userMessage = `תמלול מלא להבנת ההקשר — קרא לפני הכל:
 ===
 ${fullContext}
 ===
 
-כעת תקן שגיאות זיהוי בסגמנטים הבאים:
+סגמנטים לתיקון:
 
 ${segmentsForCorrection}`;
 
@@ -342,7 +347,7 @@ function levenshtein(a: string, b: string): number {
 // TIMING GUARANTEE: Every segment's start/end is taken DIRECTLY from the
 // Whisper origWords that fall inside that segment's time window.
 // Corrected words are mapped proportionally within that window.
-// No cumulative drift is possible — each segment is independently anchored.
+// No cumulative drift — each segment is independently anchored to Whisper.
 // ══════════════════════════════════════════════════════════════
 
 function repairBoundaries(segs: TimedSegment[], origWords: Word[]): TimedSegment[] {
@@ -351,12 +356,12 @@ function repairBoundaries(segs: TimedSegment[], origWords: Word[]): TimedSegment
   const result: TimedSegment[] = [];
 
   for (const seg of segs) {
-    // ── Find the Whisper words that belong to this segment's time window ──
+    // Find the Whisper words that fall within this segment's time window
     const segOrigWords = origWords.filter(
       w => w.start >= seg.start - 0.15 && w.start < seg.end + 0.15
     );
 
-    // No Whisper words found for this window → keep segment as-is (timing already from Whisper)
+    // No Whisper words in window → keep segment unchanged (timing already from Whisper)
     if (segOrigWords.length === 0) {
       result.push(seg);
       continue;
@@ -365,8 +370,8 @@ function repairBoundaries(segs: TimedSegment[], origWords: Word[]): TimedSegment
     const corrWords = seg.text.split(/\s+/).filter(w => w);
     if (corrWords.length === 0) continue;
 
-    // ── Map each corrected word proportionally to a Whisper word timestamp ──
-    // Every word.start/end comes directly from Whisper — nothing is invented.
+    // Map each corrected word proportionally to a Whisper word timestamp.
+    // Every start/end comes directly from Whisper — nothing is invented.
     const newWords: Word[] = corrWords.map((word, i) => {
       const origIdx = Math.min(
         Math.round(i * segOrigWords.length / corrWords.length),
@@ -595,7 +600,7 @@ export async function POST(req: NextRequest) {
       // ── STEP 2: Build timed segments ──
       const timedSegs = buildTimedSegments(cleaned.segments, cleaned.words);
 
-      // ── STEP 3: Claude AI correction (full context + segments) ──
+      // ── STEP 3: Claude AI correction (full context + surgical prompt) ──
       const aiResult = await aiCorrect(timedSegs, lang || "he");
 
       // ── STEP 3.5: Repair boundaries (per-segment Whisper anchoring) ──
