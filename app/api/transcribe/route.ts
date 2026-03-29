@@ -436,7 +436,7 @@ OUTPUT: [index|start-end] text — one line per segment, every segment, no skipp
 
       const dist = levenshtein(origClean, corrClean);
       const isGarbage = isGarbageSegment(seg.text);
-      const threshold = isGarbage ? 0.85 : 0.30;
+      const threshold = isGarbage ? 0.85 : 0.35;
 
       if (dist > threshold) {
         console.warn(`[AI] SEG ${i} REJECTED (${(dist * 100).toFixed(0)}%${isGarbage ? " GARBAGE" : ""}): "${seg.text.trim()}" → "${correction.text}"`);
@@ -456,14 +456,20 @@ OUTPUT: [index|start-end] text — one line per segment, every segment, no skipp
       acceptCount++;
 
       const corrWords = correction.text.split(/\s+/).filter(w => w);
+      // Guard: if seg has no words, just update text
+      if (!seg.words || seg.words.length === 0) {
+        return { ...seg, text: correction.text };
+      }
       const syncedWords = seg.words.map((w, wi) => {
         if (wi < corrWords.length) return { ...w, word: corrWords[wi] };
         return w;
       });
       if (corrWords.length > seg.words.length) {
-        for (let extra = seg.words.length; extra < corrWords.length; extra++) {
-          const last = seg.words[seg.words.length - 1];
-          syncedWords.push({ start: last.end, end: last.end + 0.15, word: corrWords[extra] });
+        const last = seg.words[seg.words.length - 1];
+        if (last) {
+          for (let extra = seg.words.length; extra < corrWords.length; extra++) {
+            syncedWords.push({ start: last.end, end: last.end + 0.15, word: corrWords[extra] });
+          }
         }
       }
 
