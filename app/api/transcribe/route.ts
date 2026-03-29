@@ -1,6 +1,6 @@
 /**
  * SubAI — Transcription Engine v8.0
- * 
+ *
  * ARCHITECTURE:
  * Modal Whisper (sync, ~2s) → Claude AI correction → Smart splitting → RTL SRT
  * No polling, no cold start. Single synchronous request.
@@ -20,7 +20,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const AWS_REGION = process.env.AWS_REGION || "eu-north-1";
 const S3_BUCKET = process.env.S3_BUCKET || "subai-audio";
-const MODAL_ENDPOINT = process.env.MODAL_ENDPOINT_URL!; // e.g. https://your--subai-whisper-whispertranscriber-transcribe.modal.run
+const MODAL_ENDPOINT = process.env.MODAL_ENDPOINT_URL!;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
@@ -109,7 +109,7 @@ function buildTimedSegments(segments: Segment[], words: Word[]): TimedSegment[] 
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2: AI CORRECTION — Claude Predictive Context
+// STEP 2: AI CORRECTION
 // ══════════════════════════════════════════════════════════════
 
 function isGarbageSegment(text: string): boolean {
@@ -122,13 +122,6 @@ function isGarbageSegment(text: string): boolean {
 }
 
 // ── Whisper Hallucination Filter ──
-// Detects and removes segments where Whisper got "stuck" or hallucinated:
-// 1. Same word/phrase repeated for a long duration
-// 2. Single word lasting more than 5 seconds
-// 3. Segment with very long duration but very few unique words
-// 4. Duplicate consecutive segments (exact same text)
-// 5. Segments that are just the initial prompt leaking through
-
 function filterHallucinations(segments: Segment[], words: Word[], prompt: string): { segments: Segment[]; words: Word[] } {
   const filtered: Segment[] = [];
   const filteredWords: Word[] = [];
@@ -144,44 +137,27 @@ function filterHallucinations(segments: Segment[], words: Word[], prompt: string
     let skip = false;
     let reason = "";
 
-    // 1. Very long segment with very few unique words (stuck/looping)
     if (dur > 5 && uniqueWords <= 2 && textWords.length >= 3) {
-      skip = true;
-      reason = `stuck loop: ${dur.toFixed(1)}s, ${uniqueWords} unique words`;
+      skip = true; reason = `stuck loop: ${dur.toFixed(1)}s, ${uniqueWords} unique words`;
     }
-
-    // 2. Single word lasting more than 6 seconds
     if (dur > 6 && textWords.length <= 1) {
-      skip = true;
-      reason = `single word ${dur.toFixed(1)}s`;
+      skip = true; reason = `single word ${dur.toFixed(1)}s`;
     }
-
-    // 3. Very long duration with very little content (hallucinated silence)
     if (dur > 10 && textWords.length <= 3) {
-      skip = true;
-      reason = `too long for content: ${dur.toFixed(1)}s, ${textWords.length} words`;
+      skip = true; reason = `too long for content: ${dur.toFixed(1)}s, ${textWords.length} words`;
     }
-
-    // 4. Exact duplicate of previous segment
     if (i > 0 && text === segments[i - 1].text.trim()) {
-      skip = true;
-      reason = "exact duplicate";
+      skip = true; reason = "exact duplicate";
     }
-
-    // 5. Prompt leak — segment is just the initial prompt or part of it
     if (prompt && text.length > 5) {
       const cleanText = text.replace(/[.!?,;:\s]/g, "");
       const cleanPrompt = prompt.replace(/[.!?,;:\s]/g, "");
       if (cleanPrompt.includes(cleanText) || cleanText.includes(cleanPrompt)) {
-        skip = true;
-        reason = "prompt leak";
+        skip = true; reason = "prompt leak";
       }
     }
-
-    // 6. Repeating pattern: same 1-2 words repeated 3+ times
     if (textWords.length >= 4 && uniqueWords <= 2) {
-      skip = true;
-      reason = `repeating pattern: "${textWords.slice(0, 3).join(" ")}..."`;
+      skip = true; reason = `repeating pattern: "${textWords.slice(0, 3).join(" ")}..."`;
     }
 
     if (skip) {
@@ -192,7 +168,6 @@ function filterHallucinations(segments: Segment[], words: Word[], prompt: string
     }
   }
 
-  // Filter words: keep only words that fall within remaining segments
   if (removedCount > 0 && words.length > 0) {
     for (const w of words) {
       const inFiltered = filtered.some(s => w.start >= s.start - 0.1 && w.start < s.end + 0.1);
@@ -211,182 +186,43 @@ async function aiCorrect(timedSegs: TimedSegment[], language: string): Promise<{
   }
 
   try {
-    const input = timedSegs.map((s, i) =>
+    // ── Full plain-text transcript for context (no timestamps) ──
+    // Claude reads this first to understand the full conversation before correcting
+    const fullContext = timedSegs.map(s => s.text.trim()).join(" ");
+
+    // ── Indexed segments for correction output ──
+    const segmentsForCorrection = timedSegs.map((s, i) =>
       `[${i}|${s.start.toFixed(2)}-${s.end.toFixed(2)}] ${s.text}`
     ).join("\n");
 
-    const langName = language === "he" ? "עברית" : language === "ar" ? "ערבית" : "English";
+    const systemPrompt = `אתה מתמלל מקצועי של עברית מדוברת. קיבלת תמלול שנוצר על ידי זיהוי קול אוטומטי (Whisper).
 
-    const systemPrompt = `You are the world's foremost Hebrew language expert. You possess complete mastery of every layer of the language: Biblical, Mishnaic, Modern literary, spoken street, and everything between. You adapt instantly to ANY context — a rabbi's sermon, a tech podcast, a cooking show, a news broadcast, a teenager's TikTok, a doctor's consultation, a courtroom hearing, a military briefing, a sports commentary, or a grandmother telling stories.
+תפקידך: לתקן שגיאות זיהוי בלבד — לא לשפר סגנון, לא לשנות מילים אמיתיות.
 
-MISSION: RESTORE what the speaker actually said. Fix ONLY what Whisper (speech recognition) got wrong. You are not rewriting — you are recovering the original words.
+חוקים מחייבים:
+- קרא את כל התמלול המלא לפני שאתה מתחיל לתקן — ההקשר הכולל קריטי להבנת התחום, השפה והדוברים
+- תקן רק מילה שבלתי אפשרי שנאמרה בהקשר הזה
+- אל תחליף מילה אמיתית במילה אחרת, גם אם נשמעת "יותר טובה"
+- שמור על מילות מילוי (כאילו, אממ, אה, נו, בעצם, פשוט) — הן נאמרו ומשמשות עוגני תזמון
+- אל תשנה שמות, מקומות, מותגים, תארים
+- אל תשנה סדר מילים או מבנה משפט
+- אל תוסיף מילים שלא היו בסגמנט המקורי
+- אל תשנה טיימינגים — רק את הטקסט
+- החזר כל סגמנט — אל תדלג על אף שורה
 
-CRITICAL: Return EVERY segment. No skipping. If correct → unchanged. If unsure → unchanged. Every input line = one output line.
+פורמט פלט: [index|start-end] text — שורה אחת לכל סגמנט, בדיוק כמו הקלט.`;
 
-═══════════════════════════════════════════
-PHASE 1 — UNDERSTAND THE WORLD OF THIS TEXT
-═══════════════════════════════════════════
+    const userMessage = `להלן התמלול המלא לצורך הבנת ההקשר — קרא אותו לפני הכל:
+===
+${fullContext}
+===
 
-Read the ENTIRE transcript first. Build a complete mental model:
+כעת תקן שגיאות זיהוי בסגמנטים הבאים:
 
-A) IDENTIFY THE DOMAIN:
-   The domain determines your correction vocabulary. Detect automatically:
-   Religion/Torah · Tech/Startup · News/Politics · Medicine/Health · Law/Courts
-   Military/Security · Education · Sports · Food/Cooking · Finance/Business
-   Entertainment · Science · Construction · Agriculture · Social/Casual · Children
-   
-B) PROFILE THE SPEAKER(S):
-   Age · Education level · Ethnicity/background · Formality level · Accent patterns
-   A professor speaks differently than a taxi driver. Both are CORRECT in their context.
-   
-C) NAME REGISTRY (never change):
-   People · Places · Brands · Organizations · Products · Shows · Songs · Books
-   Cross-reference: if "רבי דוד" appears 3 times, every instance = same person.
-
-D) BUILD A GLOSSARY:
-   Collect recurring terms. If "אנדפוינט" appears clearly once, every unclear 
-   "אנד פוינט" or "אנטפוינט" = "אנדפוינט". Same principle for any domain term.
-
-═══════════════════════════════════════════
-PHASE 2 — PREDICTIVE REPAIR
-═══════════════════════════════════════════
-
-For EACH word: mentally MASK it → PREDICT from context → COMPARE with Whisper.
-
-Case A: Prediction = Whisper → ✅ No change
-Case B: Prediction ≠ Whisper, but Whisper is a REAL word that COULD fit → ⚠️ LEAVE IT
-Case C: Prediction ≠ Whisper, AND Whisper's word is IMPOSSIBLE here → ✅ Fix it
-Case D: Whisper wrote garbage (Latin/Greek/symbols mixed in Hebrew) → ✅ Reconstruct if 90%+ sure
-
-THE KEY DISTINCTION:
-"הוא הלך לעבודה" — you might predict "נסע" but "הלך" works fine → LEAVE IT (Case B)
-"הוא הלק לעבודה" — "הלק" is not a word → fix to "הלך" ✅ (Case C)
-"נפטר חזר שלום" — "חזר" is real but IMPOSSIBLE here → fix to "חס ושלום" ✅ (Case C)
-
-═══════════════════════════════════════════
-PHASE 3 — HEBREW LANGUAGE MASTERY
-═══════════════════════════════════════════
-${language === "he" ? `
-【א】 PHONETIC CONFUSION PAIRS (Whisper's most common Hebrew errors):
-These letters sound identical or near-identical in spoken Hebrew.
-Fix ONLY when context makes the correct word certain.
-
-א↔ע: נושאו↔נושעו · אל↔על · אמוק↔עמוק · אישועות↔ישועות
-ה↔ח: טהרה↔תהרה · חס↔הס · הולך↔חולך · הום↔חום
-כ↔ק: כהתה↔קהתה · כלב↔קלב · כרוב↔קרוב
-ט↔ת: טוב↔תוב · טהרה↔תהרה · טעם↔תעם
-ס↔ש: סיפור↔שיפור · סגר↔שגר · סכר↔שכר
-ב↔פ: חביות↔חוויות · בעיה↔פעיה · בקוד↔פקוד
-ד↔ת: דקאות↔תקיעות · דופק↔תופק
-נ↔מ: distorted speech can swap these
-
-【ב】 ABBREVIATIONS & ACRONYMS (add גרשיים where needed):
-Religious: שליטה→שליט"א · זצל→זצ"ל · הרשש→הרש"ש · הרמבם→הרמב"ם · תנך→תנ"ך
-Military: צהל→צה"ל · חטמר→חטמ"ר · מגב→מג"ב · שבכ→שב"כ · מטכל→מטכ"ל
-Legal: עוד→עו"ד · בימש→בימ"ש · בגץ→בג"ץ
-Academic: דר→ד"ר · פרופ→פרופ'
-Geographic: תא→ת"א · רג→ר"ג · פת→פ"ת · בש→ב"ש · כס→כ"ס
-Media: ערוץ 12, כאן 11, גלי צה"ל, רשת ב'
-General: בנא→בע"מ · חברת→חב' · מספר→מס'
-
-【ג】 FIXED EXPRESSIONS (both halves confirm each other):
-Religious: בקדושה ובטהרה · נושעו ונרפאו · חס ושלום · ברוך השם · עליו השלום
-         כהתה עינו ולא נס ליחו · זכר צדיק לברכה · רפואה שלמה
-Daily: מה נשמע · מה קורה · יום יום · פה ושם · כל הכבוד · בהצלחה
-      אין מה לעשות · מה פתאום · בכל מקרה · בסופו של דבר
-Legal: בית משפט · כתב אישום · צו הגנה · עדות ראייה
-Medical: בדיקת דם · לחץ דם · קצב לב · חדר מיון · טיפול נמרץ
-Business: תוכנית עסקית · מחזור הכנסות · הון סיכון · גיוס הון
-
-【ד】 SPOKEN HEBREW PHENOMENA:
-Fillers (NEVER remove — timing anchors): כאילו · אממ · אה · נו · אז · בקיצור · בעצם · סתם · פשוט · נגיד · תשמע · תגיד · אתה יודע · מה זה
-Slang (CORRECT — not errors): יאללה · וואלה · אחלה · סבבה · באסה · חלאס · תכלס · פאדיחה · חפרן · פרייער · מגניב · חבל על הזמן · סוף הדרך · על הפנים
-Loanwords: אינטרנט · קומפיוטר · סטארטאפ · אפליקציה · סרבר · דטה · פיצה · פסטה · סושי · ג'ינס
-Fast speech merges: שלא=ש+לא · שהוא=ש+הוא · בטח=ב+טח · כאילו→כילו · אתה יודע→אתהודע
-Emphasis doubling: ממש ממש · הרבה הרבה · טוב טוב (these are intentional, not errors)
-
-【ה】 ETHNIC & DIALECTAL HEBREW:
-Mizrachi general: חביבי · יא אחי · ח'לאס · וואלה · משהו
-Moroccan: ח'ייא · בוקה · דרמאי · סיר מרוקאי
-Iraqi: קבולי · ביליכי · מסכנאק · סמבוסק
-Yemenite: ג'חנון · מלוואח · כובאנה · חוואיג'
-Ethiopian: אינג'רה · דרו ווט · ברברה
-Russian immigrants: -nik suffix · common word mixing
-Ashkenazi/Yiddish: אוי · געוואלד · חוצפה · שלימזל · נודניק · קיבל · בלאט
-
-【ו】 DOMAIN-SPECIFIC VOCABULARY:
-Tech: דיפלוי · קומיט · מרג' · ריפו · API · פרונטאנד · באקאנד · דיבאג · ספרינט · סקראם
-Medicine: MRI · CT · אולטרסאונד · כימותרפיה · אנטיביוטיקה · לחץ דם · סוכרת
-Legal: פרקליטות · תביעה · סעיף · פסק דין · ערעור · שופט · פרוטוקול
-Finance: מניה · אגרת חוב · תשואה · דיבידנד · תיק השקעות · בורסה
-Sports: ליגת העל · גביע המדינה · שער · פנדל · עבירה · הפסד · ניצחון
-Education: בגרות · פסיכומטרי · תואר · סמסטר · קורס · מרצה · מכינה
-Cooking: כפית · כף · כוס · לערבב · לקפל · להקציף · תנור · מחבת
-Construction: בטון · טיח · אינסטלציה · חשמלאי · קבלן · היתר בנייה
-Real estate: דירה · משכנתא · טאבו · נסח · תמא 38 · פינוי בינוי
-
-【ז】 WHISPER ARTIFACTS (always fix):
-Phantom letters: האישועות→הישועות · ואישועה→וישועה · אהולך→הולך
-Stuck loops: same word/phrase repeating for many seconds
-Prompt leaks: transcript contains words from the system prompt
-Language mixing: random Latin/Greek/Cyrillic characters in Hebrew text
-Ghost segments: very long duration with very little content
-
-【ח】 CONSTRUCT STATE & BOUND PHRASES (keep together):
-Any noun+noun or noun+adjective that forms a unit:
-בית ספר · בית חולים · בית משפט · בית כנסת · בית המקדש
-גן עדן · גן ילדים · שמות הקודש · יין הישועות · ארון הקודש
-ראש ממשלה · שר האוצר · מנכ"ל · יושב ראש · סגן נשיא
-
-【ט】 NUMBERS & MEASUREMENTS:
-Only fix when context CLEARLY shows Whisper got digits wrong.
-300↔3000 — only if surrounding words confirm ("אלפי" nearby).
-Units: קילומטר · מטר · ליטר · קילו · אחוז · שקל · דולר · מעלות
-Time: שעה · דקה · שנייה · חודש · שבוע · שנה
-` : language === "ar" ? `
-Fix Arabic-specific Whisper errors. Respect dialect (MSA/Levantine/Egyptian/Gulf).
-Understand cultural terms, religious expressions, place names.
-` : ""}
-
-═══════════════════════════════════════════
-PHASE 4 — PUNCTUATION
-═══════════════════════════════════════════
-- Period (.) where speaker completed a thought
-- Comma (,) at natural pauses, list items, clause boundaries
-- Question mark (?) for questions
-- DO NOT over-punctuate. Spoken Hebrew flows differently than written.
-
-═══════════════════════════════════════════
-PHASE 5 — VERIFICATION (mandatory for each change)
-═══════════════════════════════════════════
-1. Is Whisper's word IMPOSSIBLE in this context? (must be YES)
-2. Is my replacement the ONLY plausible word? (must be YES)
-3. Am I 99%+ confident? (must be YES)
-4. Did I swap a real word for a synonym? (must be NO)
-   EXAMPLES OF FORBIDDEN SWAPS: הלך→צעד · לעשות→לטפל · נדבר→נוצר · טעם→נסתיימה · גדול→עצום
-5. Did I change the speaker's meaning, even subtly? (must be NO)
-6. Did I "improve" the Hebrew instead of fixing an error? (must be NO)
-If ANY fails → REVERT.
-
-═══════════════════════════════════════════
-ABSOLUTE LAWS
-═══════════════════════════════════════════
-❌ NEVER replace a real word with a synonym
-❌ NEVER improve grammar, style, or eloquence
-❌ NEVER add words not spoken (unless 99% certain 1-word gap)
-❌ NEVER remove fillers — they are SACRED timing anchors
-❌ NEVER change names, places, brands, titles
-❌ NEVER restructure sentences or change word order
-❌ NEVER change verb tense, gender, or number unless clearly wrong
-
-GOLDEN RULE: You are RESTORING, not IMPROVING.
-A clumsy sentence actually spoken > a polished sentence you invented.
-When in doubt — the speaker is right, Whisper is right, YOU are wrong.
-
-OUTPUT: [index|start-end] text — one line per segment, every segment, no skipping.`;
+${segmentsForCorrection}`;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 50000); // 50s — enough for 100+ segments
+    const timeout = setTimeout(() => controller.abort(), 50000);
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -399,7 +235,7 @@ OUTPUT: [index|start-end] text — one line per segment, every segment, no skipp
         model: "claude-sonnet-4-20250514",
         max_tokens: 8192,
         system: systemPrompt,
-        messages: [{ role: "user", content: input }],
+        messages: [{ role: "user", content: userMessage }],
       }),
       signal: controller.signal,
     });
@@ -456,7 +292,6 @@ OUTPUT: [index|start-end] text — one line per segment, every segment, no skipp
       acceptCount++;
 
       const corrWords = correction.text.split(/\s+/).filter(w => w);
-      // Guard: if seg has no words, just update text
       if (!seg.words || seg.words.length === 0) {
         return { ...seg, text: correction.text };
       }
@@ -502,43 +337,54 @@ function levenshtein(a: string, b: string): number {
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2.5: BOUNDARY REPAIR
+// STEP 2.5: BOUNDARY REPAIR — per-segment anchoring (no global drift)
+//
+// TIMING GUARANTEE: Every segment's start/end is taken DIRECTLY from the
+// Whisper origWords that fall inside that segment's time window.
+// Corrected words are mapped proportionally within that window.
+// No cumulative drift is possible — each segment is independently anchored.
 // ══════════════════════════════════════════════════════════════
 
 function repairBoundaries(segs: TimedSegment[], origWords: Word[]): TimedSegment[] {
   if (!origWords || origWords.length === 0) return segs;
 
-  const allCorr: string[] = [];
-  const segMap: number[] = [];
-  for (let si = 0; si < segs.length; si++) {
-    const ws = segs[si].text.split(/\s+/).filter(w => w);
-    for (const w of ws) { allCorr.push(w); segMap.push(si); }
-  }
-
-  const matched: Array<{ word: string; start: number; end: number }> = [];
-  let oi = 0;
-  for (const cw of allCorr) {
-    if (oi < origWords.length) {
-      matched.push({ word: cw, start: origWords[oi].start, end: origWords[oi].end });
-      oi++;
-    } else {
-      const last = matched.length > 0 ? matched[matched.length - 1].end : 0;
-      matched.push({ word: cw, start: last, end: last + 0.15 });
-    }
-  }
-
   const result: TimedSegment[] = [];
-  let mi = 0;
-  for (let si = 0; si < segs.length; si++) {
-    const wc = segs[si].text.split(/\s+/).filter(w => w).length;
-    const sw: Word[] = [];
-    for (let wi = 0; wi < wc && mi < matched.length; wi++) {
-      sw.push({ start: matched[mi].start, end: matched[mi].end, word: matched[mi].word });
-      mi++;
+
+  for (const seg of segs) {
+    // ── Find the Whisper words that belong to this segment's time window ──
+    const segOrigWords = origWords.filter(
+      w => w.start >= seg.start - 0.15 && w.start < seg.end + 0.15
+    );
+
+    // No Whisper words found for this window → keep segment as-is (timing already from Whisper)
+    if (segOrigWords.length === 0) {
+      result.push(seg);
+      continue;
     }
-    if (sw.length > 0) {
-      result.push({ start: sw[0].start, end: sw[sw.length - 1].end, text: sw.map(w => w.word).join(" "), words: sw });
-    }
+
+    const corrWords = seg.text.split(/\s+/).filter(w => w);
+    if (corrWords.length === 0) continue;
+
+    // ── Map each corrected word proportionally to a Whisper word timestamp ──
+    // Every word.start/end comes directly from Whisper — nothing is invented.
+    const newWords: Word[] = corrWords.map((word, i) => {
+      const origIdx = Math.min(
+        Math.round(i * segOrigWords.length / corrWords.length),
+        segOrigWords.length - 1
+      );
+      return {
+        start: segOrigWords[origIdx].start,
+        end:   segOrigWords[origIdx].end,
+        word,
+      };
+    });
+
+    result.push({
+      start: segOrigWords[0].start,                         // ← ALWAYS from Whisper
+      end:   segOrigWords[segOrigWords.length - 1].end,     // ← ALWAYS from Whisper
+      text:  corrWords.join(" "),
+      words: newWords,
+    });
   }
 
   return result.length > 0 ? result : segs;
@@ -701,17 +547,14 @@ export async function POST(req: NextRequest) {
       const audioDur = audio_duration || 0;
       if (Math.ceil(audioDur / 60 * 10) / 10 > remaining) return err("לא מספיק דקות.", 403);
 
-      // ── STEP 1: Modal Whisper (full VAD control, Hebrew optimized) ──
+      // ── STEP 1: Modal Whisper ──
       console.log("[MODAL] Sending to Whisper...");
       const t0 = Date.now();
 
       const modalRes = await fetch(MODAL_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          audio_url: download_url,
-          lang: lang || "he",
-        }),
+        body: JSON.stringify({ audio_url: download_url, lang: lang || "he" }),
       });
 
       if (!modalRes.ok) {
@@ -752,10 +595,10 @@ export async function POST(req: NextRequest) {
       // ── STEP 2: Build timed segments ──
       const timedSegs = buildTimedSegments(cleaned.segments, cleaned.words);
 
-      // ── STEP 3: Claude AI correction ──
+      // ── STEP 3: Claude AI correction (full context + segments) ──
       const aiResult = await aiCorrect(timedSegs, lang || "he");
 
-      // ── STEP 3.5: Repair boundaries ──
+      // ── STEP 3.5: Repair boundaries (per-segment Whisper anchoring) ──
       const repaired = repairBoundaries(aiResult.segments, rawWords);
 
       // ── STEP 4: Split ──
