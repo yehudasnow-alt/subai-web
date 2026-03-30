@@ -39,7 +39,7 @@ export default function Home() {
 
       {/* ── Stats ── */}
       <section className="stats" style={a(0.3)}>
-        {[["99%","דיוק בעברית"],["100+","שפות נתמכות"],["AI","תיקון טקסט חכם"],["0","התקנות נוספות"]].map(([val,label],i)=>(
+        {[["99%","דיוק בעברית"],["2 שניות","תמלול בענן"],["AI","תיקון טקסט חכם"],["0","התקנות נוספות"]].map(([val,label],i)=>(
           <div key={i} className="stat-item"><div className="stat-val">{val}</div><div className="stat-label">{label}</div></div>
         ))}
       </section>
@@ -53,11 +53,21 @@ export default function Home() {
             ["🎯","דיוק שאין כמותו","Whisper large-v3 הוא המודל הכי מדויק בעולם. הוספנו שכבת AI של Claude לתיקון דקדוק ופיסוק."],
             ["⚡","מהיר ויעיל","תמלול בענן על GPU ייעודי. הכתוביות מוכנות תוך שניות."],
             ["🔤","עברית ברמה אחרת","אופטימיזציה מיוחדת לעברית — פיסוק מדויק, זיהוי שמות, ומילים מקצועיות."],
-            ["🎬","בתוך Premiere","פלאגין מובנה. סמן In/Out, לחץ כפתור — הכתוביות בטיימליין."],
+            ["🎬","בתוך Premiere","פלאגין מובנה. סמן In/Out, לחץ כפתור — ייצוא ישר לתוכנה."],
             ["📱","מצב TikTok","כתוביות מילה-מילה — מושלם ל-Reels, TikTok, Shorts ו-YouTube."],
             ["🤖","תיקון AI אוטומטי","Claude AI עובר על כל תמלול ומתקן שגיאות, מילים כפולות ופיסוק."]
           ].map(([icon,title,desc],i)=>(
-            <div key={i} className="feat-card glass-card"><div className="feat-icon">{icon}</div><div className="feat-title">{title}</div><div className="feat-desc">{desc}</div></div>
+            <div key={i} className="feat-card glass-card">
+              <div className="feat-icon" style={{
+                width: 52, height: 52, borderRadius: 16,
+                background: "linear-gradient(135deg, #7c3aed, #a855f7, #c084fc)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 24, boxShadow: "0 4px 14px rgba(124,58,237,0.25)",
+                marginBottom: 12
+              }}>{icon}</div>
+              <div className="feat-title">{title}</div>
+              <div className="feat-desc">{desc}</div>
+            </div>
           ))}
         </div>
       </section>
@@ -82,22 +92,37 @@ export default function Home() {
             <div className="price-name">חינמי</div>
             <div className="price-amount">₪0</div>
             <div className="price-period">לנצח</div>
-            <ul className="price-features"><li>10 דקות תמלול</li><li>עברית + אנגלית</li><li>תיקון AI</li><li>כתוביות בטיימליין</li></ul>
+            <ul className="price-features">
+              <li>10 דקות תמלול</li>
+              <li>תמלול בעברית</li>
+              <li>תיקון AI</li>
+              <li>ייצוא ישר לתוכנה</li>
+            </ul>
             <Link href="/auth" className="price-btn">התחל בחינם</Link>
           </div>
           <div className="price-card glass-card popular">
             <div className="popular-tag">הכי פופולרי</div>
             <div className="price-name">פרו</div>
-            <div className="price-amount">₪39<span>/חודש</span></div>
+            <div className="price-amount">₪59<span>/חודש</span></div>
             <div className="price-period">120 דקות לחודש</div>
-            <ul className="price-features"><li>120 דקות תמלול</li><li>100+ שפות</li><li>תיקון AI מתקדם</li><li>מצב TikTok</li><li>תמיכה מהירה</li></ul>
+            <ul className="price-features">
+              <li>120 דקות תמלול</li>
+              <li>תיקון AI מתקדם</li>
+              <li>מצב TikTok</li>
+              <li>ייצוא ישר לתוכנה</li>
+            </ul>
             <Link href="/api/checkout?plan=pro" className="price-btn primary">שדרג לפרו ←</Link>
           </div>
           <div className="price-card glass-card">
             <div className="price-name">סטודיו</div>
-            <div className="price-amount">₪99<span>/חודש</span></div>
-            <div className="price-period">250 דקות לחודש</div>
-            <ul className="price-features"><li>250 דקות תמלול</li><li>100+ שפות</li><li>תיקון AI מתקדם</li><li>מצב TikTok</li><li>תמיכה VIP</li><li>עדיפות בתור</li></ul>
+            <div className="price-amount">₪180<span>/חודש</span></div>
+            <div className="price-period">500 דקות לחודש</div>
+            <ul className="price-features">
+              <li>500 דקות תמלול</li>
+              <li>תיקון AI מתקדם</li>
+              <li>מצב TikTok</li>
+              <li>ייצוא ישר לתוכנה</li>
+            </ul>
             <Link href="/api/checkout?plan=studio" className="price-btn">שדרג לסטודיו</Link>
           </div>
         </div>
