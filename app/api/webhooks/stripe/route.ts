@@ -2,9 +2,10 @@
  * SubAI — Stripe Webhook Handler
  * POST /api/webhooks/stripe
  *
- * Handles: subscription created, updated, deleted, payment failed
+ * One-time payment model:
+ * - checkout.session.completed → add purchased minutes to user balance
+ * - No subscription management needed
  */
-
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
@@ -13,17 +14,15 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2024-04
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
+// Map price IDs to minute packages
 const PLAN_MAP: Record<string, { plan: string; minutes: number }> = {
-  // Replace with your actual Stripe price IDs
-  "price_pro_monthly":    { plan: "pro",    minutes: 120 },
-  "price_pro_yearly":     { plan: "pro",    minutes: 120 },
-  "price_studio_monthly": { plan: "studio", minutes: 500 },
-  "price_studio_yearly":  { plan: "studio", minutes: 500 },
+  [process.env.STRIPE_PRICE_PRO    || "price_pro"]:    { plan: "pro",    minutes: 120 },
+  [process.env.STRIPE_PRICE_STUDIO || "price_studio"]: { plan: "studio", minutes: 500 },
 };
 
 export async function POST(req: NextRequest) {
   const body = await req.text();
-  const sig = req.headers.get("stripe-signature");
+  const sig  = req.headers.get("stripe-signature");
 
   let event: Stripe.Event;
   try {
@@ -35,67 +34,81 @@ export async function POST(req: NextRequest) {
 
   try {
     switch (event.type) {
+
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        const customerId = session.customer as string;
-        const email = session.customer_email || session.customer_details?.email;
 
-        if (email) {
-          // Link Stripe customer to Supabase user
-          await supabase
-            .from("profiles")
-            .update({ stripe_customer_id: customerId })
-            .eq("email", email);
+        // Only process paid sessions
+        if (session.payment_status !== "paid") {
+          console.log(`[WEBHOOK] Session ${session.id} not paid yet, skipping`);
+          break;
         }
-        break;
-      }
 
-      case "customer.subscription.created":
-      case "customer.subscription.updated": {
-        const sub = event.data.object as Stripe.Subscription;
-        const customerId = sub.customer as string;
-        const priceId = sub.items.data[0]?.price?.id;
-        const planInfo = PLAN_MAP[priceId] || { plan: "pro", minutes: 120 };
+        const email = session.customer_email || session.customer_details?.email;
+        const customerId = session.customer as string;
+        const plan    = session.metadata?.plan    || "pro";
+        const minutes = parseInt(session.metadata?.minutes || "0");
 
-        await supabase
+        if (!email || minutes <= 0) {
+          console.error(`[WEBHOOK] Missing email or minutes: email=${email}, minutes=${minutes}`);
+          break;
+        }
+
+        // Find user by email
+        const { data: profile, error: findErr } = await supabase
+          .from("profiles")
+          .select("id, plan, minutes_limit, minutes_used, stripe_customer_id")
+          .eq("email", email)
+          .single();
+
+        if (findErr || !profile) {
+          console.error(`[WEBHOOK] User not found for email: ${email}`);
+          break;
+        }
+
+        // Add purchased minutes to existing balance
+        const currentRemaining = Math.max(0, (profile.minutes_limit || 0) - (profile.minutes_used || 0));
+        const newLimit = (profile.minutes_used || 0) + currentRemaining + minutes;
+
+        const { error: updateErr } = await supabase
           .from("profiles")
           .update({
-            plan: planInfo.plan,
-            minutes_limit: planInfo.minutes,
-            subscription_status: sub.status === "active" ? "active" : sub.status,
-            stripe_subscription_id: sub.id,
-            period_end: new Date(sub.current_period_end * 1000).toISOString(),
+            plan:                plan,
+            minutes_limit:       newLimit,
+            stripe_customer_id:  customerId || profile.stripe_customer_id,
           })
-          .eq("stripe_customer_id", customerId);
+          .eq("id", profile.id);
+
+        if (updateErr) {
+          console.error(`[WEBHOOK] Failed to update profile:`, updateErr);
+        } else {
+          console.log(`[WEBHOOK] ✅ ${email} purchased ${plan} — added ${minutes} min (remaining: ${currentRemaining} → ${currentRemaining + minutes})`);
+        }
+
+        // Log the purchase
+        await supabase.from("usage_log").insert({
+          user_id:            profile.id,
+          audio_duration_sec: 0,
+          minutes_charged:    0,
+          language:           "he",
+          model:              "purchase",
+          segments_count:     0,
+          processing_sec:     0,
+          status:             "purchase",
+          error_message:      `Purchased ${plan} package: +${minutes} minutes (₪${plan === "pro" ? "59" : "180"})`,
+        });
+
         break;
       }
 
-      case "customer.subscription.deleted": {
-        const sub = event.data.object as Stripe.Subscription;
-        const customerId = sub.customer as string;
-
-        // Keep access until period_end, then downgrade
-        await supabase
-          .from("profiles")
-          .update({
-            subscription_status: "canceled",
-            period_end: new Date(sub.current_period_end * 1000).toISOString(),
-          })
-          .eq("stripe_customer_id", customerId);
-        break;
-      }
-
-      case "invoice.payment_failed": {
-        const invoice = event.data.object as Stripe.Invoice;
-        const customerId = invoice.customer as string;
-
-        await supabase
-          .from("profiles")
-          .update({ subscription_status: "past_due" })
-          .eq("stripe_customer_id", customerId);
+      // Keep payment_failed for one-time payments too
+      case "payment_intent.payment_failed": {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        console.log(`[WEBHOOK] Payment failed: ${paymentIntent.id} — ${paymentIntent.last_payment_error?.message}`);
         break;
       }
     }
+
   } catch (e: any) {
     console.error("Webhook handler error:", e);
   }
