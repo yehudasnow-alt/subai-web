@@ -10,8 +10,6 @@ export default function Dashboard() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [cancelLoading, setCancelLoading] = useState(false);
-  const [cancelMsg, setCancelMsg] = useState("");
 
   useEffect(() => {
     const ps = new URLSearchParams(window.location.search).get("plugin_session");
@@ -28,19 +26,6 @@ export default function Dashboard() {
     });
   }, []);
 
-  async function handleCancel() {
-    if (!confirm("בטוח שברצונך לבטל? תוכל להמשיך להשתמש בדקות שנותרו עד סוף התקופה.")) return;
-    setCancelLoading(true);
-    try {
-      const res = await fetch("/api/cancel-subscription", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: user.id }) });
-      const data = await res.json();
-      if (data.ok) { setCancelMsg("המנוי יבוטל בסוף התקופה הנוכחית. הדקות שנותרו ימשיכו לעבוד."); }
-      else setCancelMsg(data.message || "שגיאה בביטול");
-    } catch { setCancelMsg("שגיאה בביטול"); }
-    setCancelLoading(false);
-  }
-
   async function handleLogout() { await supabase.auth.signOut(); window.location.href = "/"; }
 
   if (loading) return (
@@ -53,14 +38,14 @@ export default function Dashboard() {
     </div>
   );
 
-  const plans: Record<string, string> = { free: "חינמי", pro: "פרו ⭐", studio: "סטודיו 💎" };
   const used = profile?.minutes_used || 0;
   const limit = profile?.minutes_limit || 10;
   const remaining = Math.max(0, limit - used);
   const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
   const displayName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email?.split("@")[0] || "";
   const currentPlan = profile?.plan || "free";
-  const isCanceled = profile?.subscription_status === "canceled";
+
+  const planNames: Record<string, string> = { free: "חינמי", pro: "פרו ⭐", studio: "סטודיו 💎" };
 
   // Gradient icon style
   const gradientIconStyle: React.CSSProperties = {
@@ -82,9 +67,8 @@ export default function Dashboard() {
         <div className="plan-card glass-card" style={{ borderRadius: 24 }}>
           <div className="plan-row">
             <div>
-              <div className="plan-label">התוכנית שלך</div>
-              <div className="plan-val">{plans[currentPlan] || "חינמי"}</div>
-              {isCanceled && <div style={{ fontSize: 12, color: "#f59e0b", marginTop: 4 }}>⚠ המנוי יבוטל בסוף התקופה</div>}
+              <div className="plan-label">החבילה שלך</div>
+              <div className="plan-val">{planNames[currentPlan] || "חינמי"}</div>
             </div>
             <div style={{ textAlign: "left" }}>
               <div className="plan-label">דקות נותרות</div>
@@ -93,7 +77,7 @@ export default function Dashboard() {
           </div>
           <div className="usage-track"><div className={`usage-fill ${pct > 80 ? "warn" : "ok"}`} style={{ width: pct + "%" }} /></div>
           <div className="usage-meta"><span>{used.toFixed(1)} נוצלו</span><span>{limit} סה״כ</span></div>
-          {remaining <= 0 && <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.12)", fontSize: 13, color: "#ef4444", textAlign: "center" }}>נגמרו הדקות! שדרג כדי להמשיך לתמלל.</div>}
+          {remaining <= 0 && <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.12)", fontSize: 13, color: "#ef4444", textAlign: "center" }}>נגמרו הדקות! קנה חבילה חדשה כדי להמשיך לתמלל.</div>}
         </div>
 
         {/* ── Quick Actions ── */}
@@ -110,63 +94,39 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {/* ── Plans / Upgrade ── */}
+        {/* ── Buy Minutes ── */}
         <h2 style={{ fontSize: 22, fontWeight: 800, margin: "36px 0 16px", color: "#1a1a2e" }}>
-          {currentPlan === "free" ? "שדרג את התוכנית" : "התוכניות שלנו"}
+          {remaining <= 0 ? "קנה דקות" : "קנה עוד דקות"}
         </h2>
         <div className="price-grid" style={{ maxWidth: "100%" }}>
-          {/* Free */}
-          <div className={`price-card glass-card ${currentPlan === "free" ? "current" : ""}`} style={{ borderRadius: 20 }}>
-            {currentPlan === "free" && <div className="current-tag">התוכנית הנוכחית</div>}
-            <div className="price-name">חינמי</div>
-            <div className="price-amount" style={{ fontSize: 32 }}>₪0</div>
-            <div className="price-period">10 דקות</div>
-            <ul className="price-features">
-              <li>תמלול בעברית</li>
-              <li>תיקון AI</li>
-              <li>ייצוא ישר לתוכנה</li>
-            </ul>
-            {currentPlan === "free" ? <div className="price-btn" style={{ opacity: 0.5, cursor: "default" }}>התוכנית הנוכחית</div> :
-              <div className="price-btn" style={{ opacity: 0.5, cursor: "default" }}>חינמי</div>}
-          </div>
           {/* Pro */}
-          <div className={`price-card glass-card ${currentPlan === "pro" ? "current" : "popular"}`} style={{ borderRadius: 20 }}>
-            {currentPlan === "pro" ? <div className="current-tag">התוכנית הנוכחית</div> : <div className="popular-tag">מומלץ</div>}
+          <div className="price-card glass-card popular" style={{ borderRadius: 20 }}>
+            <div className="popular-tag">הכי פופולרי</div>
             <div className="price-name">פרו</div>
-            <div className="price-amount" style={{ fontSize: 32 }}>₪59<span>/חודש</span></div>
-            <div className="price-period">120 דקות לחודש</div>
+            <div className="price-amount" style={{ fontSize: 32 }}>₪59</div>
+            <div className="price-period">120 דקות</div>
             <ul className="price-features">
               <li>120 דקות תמלול</li>
               <li>תיקון AI מתקדם</li>
               <li>מצב TikTok</li>
               <li>ייצוא ישר לתוכנה</li>
             </ul>
-            {currentPlan === "pro" ?
-              <button className="price-btn" onClick={handleCancel} disabled={cancelLoading || isCanceled} style={{ color: "#e55", borderColor: "rgba(239,68,68,0.2)" }}>
-                {isCanceled ? "ביטול בתהליך" : cancelLoading ? "מבטל..." : "בטל מנוי"}
-              </button> :
-              <a href="/api/checkout?plan=pro" className="price-btn primary">שדרג לפרו ←</a>}
+            <a href="/api/checkout?plan=pro" className="price-btn primary">קנה חבילת פרו ←</a>
           </div>
           {/* Studio */}
-          <div className={`price-card glass-card ${currentPlan === "studio" ? "current" : ""}`} style={{ borderRadius: 20 }}>
-            {currentPlan === "studio" && <div className="current-tag">התוכנית הנוכחית</div>}
+          <div className="price-card glass-card" style={{ borderRadius: 20 }}>
             <div className="price-name">סטודיו</div>
-            <div className="price-amount" style={{ fontSize: 32 }}>₪180<span>/חודש</span></div>
-            <div className="price-period">500 דקות לחודש</div>
+            <div className="price-amount" style={{ fontSize: 32 }}>₪180</div>
+            <div className="price-period">500 דקות</div>
             <ul className="price-features">
               <li>500 דקות תמלול</li>
               <li>תיקון AI מתקדם</li>
               <li>מצב TikTok</li>
               <li>ייצוא ישר לתוכנה</li>
             </ul>
-            {currentPlan === "studio" ?
-              <button className="price-btn" onClick={handleCancel} disabled={cancelLoading || isCanceled} style={{ color: "#e55", borderColor: "rgba(239,68,68,0.2)" }}>
-                {isCanceled ? "ביטול בתהליך" : cancelLoading ? "מבטל..." : "בטל מנוי"}
-              </button> :
-              <a href="/api/checkout?plan=studio" className="price-btn primary">שדרג לסטודיו ←</a>}
+            <a href="/api/checkout?plan=studio" className="price-btn">קנה חבילת סטודיו</a>
           </div>
         </div>
-        {cancelMsg && <div style={{ marginTop: 12, padding: 14, borderRadius: 14, fontSize: 13, textAlign: "center", background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.15)", color: "#f59e0b" }}>{cancelMsg}</div>}
 
         {/* ── Footer ── */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 36, paddingTop: 20, borderTop: "1px solid rgba(0,0,0,0.05)" }}>
