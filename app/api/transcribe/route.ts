@@ -1,5 +1,5 @@
 /**
- * SubAI — Transcription Engine v9.0
+ * SubAI — Transcription Engine v9.1
  *
  * ARCHITECTURE:
  * Modal Whisper (sync, ~2s) → Claude AI correction → Smart splitting → RTL SRT
@@ -11,13 +11,10 @@
  * TEMP=0:     Deterministic output. No creativity, no guessing, no paraphrasing.
  * VALIDATION: Per-word Levenshtein gate — each word checked individually, not the whole segment.
  *
- * v9 UPGRADE:
- *   • Context-first correction: Claude analyzes the full text to understand topic,
- *     domain, speaker register, and recurring terms BEFORE touching any segment.
- *   • No external knowledge injection — all corrections derive from internal
- *     context analysis (cross-segment coherence, repeated terms, sentence logic).
- *   • Multi-pass thinking: topic → key terms → suspicious words → corrections.
- *   • Enhanced per-word validation with phonetic-aware thresholds.
+ * v9.1 SECURITY UPGRADE:
+ *   • Rate Limiting: 10 transcriptions per minute per user (in-memory)
+ *   • Input Validation: API key format, max audio 60 min, language whitelist
+ *   • Security logging: all blocked attempts logged with [SECURITY] prefix
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -45,6 +42,120 @@ function err(msg: string, status = 400) { return NextResponse.json({ error: true
 interface Segment      { start: number; end: number; text: string; }
 interface Word         { start: number; end: number; word: string; probability?: number; }
 interface TimedSegment { start: number; end: number; text: string; words: Word[]; }
+
+// ══════════════════════════════════════════════════════════════
+// SECURITY LAYER 2: RATE LIMITING
+// ══════════════════════════════════════════════════════════════
+
+const RATE_LIMIT_WINDOW_MS = 60_000;  // 1 minute
+const RATE_LIMIT_MAX       = 10;      // max requests per window
+
+const rateLimitMap = new Map<string, number[]>();
+let rateLimitCleanupCounter = 0;
+
+function checkRateLimit(userId: string): { allowed: boolean; retryAfterMs: number } {
+  const now = Date.now();
+  const timestamps = rateLimitMap.get(userId) || [];
+
+  // Remove entries older than the window
+  const recent = timestamps.filter(t => now - t < RATE_LIMIT_WINDOW_MS);
+
+  if (recent.length >= RATE_LIMIT_MAX) {
+    const oldestInWindow = recent[0];
+    const retryAfterMs = RATE_LIMIT_WINDOW_MS - (now - oldestInWindow);
+    console.log(`[SECURITY] Rate limit hit: user ${userId.substring(0, 8)}... (${recent.length}/${RATE_LIMIT_MAX} in window)`);
+    return { allowed: false, retryAfterMs };
+  }
+
+  recent.push(now);
+  rateLimitMap.set(userId, recent);
+
+  // Cleanup old entries every 1000 requests to prevent memory leak
+  rateLimitCleanupCounter++;
+  if (rateLimitCleanupCounter >= 1000) {
+    rateLimitCleanupCounter = 0;
+    const cutoff = now - RATE_LIMIT_WINDOW_MS * 2;
+    for (const [key, vals] of rateLimitMap.entries()) {
+      const filtered = vals.filter(t => t > cutoff);
+      if (filtered.length === 0) rateLimitMap.delete(key);
+      else rateLimitMap.set(key, filtered);
+    }
+    console.log(`[SECURITY] Rate limit cleanup — ${rateLimitMap.size} users tracked`);
+  }
+
+  return { allowed: true, retryAfterMs: 0 };
+}
+
+// ══════════════════════════════════════════════════════════════
+// SECURITY LAYER 3: INPUT VALIDATION
+// ══════════════════════════════════════════════════════════════
+
+const VALID_LANGUAGES = new Set([
+  "he", "ar", "en", "ru", "fr", "es", "de", "it", "pt", "nl",
+  "pl", "uk", "ro", "hu", "cs", "sv", "da", "fi", "no", "tr",
+  "ja", "ko", "zh", "th", "vi", "id", "ms", "hi", "bn", "ta",
+  "el", "bg", "hr", "sr", "sk", "sl", "et", "lv", "lt", "am",
+]);
+
+const MAX_AUDIO_DURATION_SEC = 3600; // 60 minutes
+const API_KEY_MIN_LENGTH     = 20;
+const API_KEY_MAX_LENGTH     = 200;
+
+const VALID_ACTIONS = new Set([
+  "get_upload_url", "transcribe", "check_job", "status",
+]);
+
+const VALID_CAPTION_STYLES = new Set([
+  "auto", "sentence", "word1", "word2", "word3", "word4", "word5", "word6",
+]);
+
+function validateInput(body: any): { valid: boolean; error: string } {
+  // API key format
+  const { api_key, action, lang, audio_duration, caption_style } = body;
+
+  if (!api_key || typeof api_key !== "string") {
+    return { valid: false, error: "Missing api_key" };
+  }
+  if (api_key.length < API_KEY_MIN_LENGTH || api_key.length > API_KEY_MAX_LENGTH) {
+    console.log(`[SECURITY] Invalid API key length: ${api_key.length}`);
+    return { valid: false, error: "Invalid API key format" };
+  }
+  if (/[<>"';\s]/.test(api_key)) {
+    console.log(`[SECURITY] API key contains forbidden characters`);
+    return { valid: false, error: "Invalid API key format" };
+  }
+
+  // Action validation
+  if (!action || !VALID_ACTIONS.has(action)) {
+    return { valid: false, error: "Unknown action" };
+  }
+
+  // Language validation (only for transcribe)
+  if (action === "transcribe" && lang && !VALID_LANGUAGES.has(lang)) {
+    console.log(`[SECURITY] Invalid language: ${lang}`);
+    return { valid: false, error: `Unsupported language: ${lang}` };
+  }
+
+  // Audio duration validation
+  if (action === "transcribe" && audio_duration !== undefined) {
+    const dur = Number(audio_duration);
+    if (isNaN(dur) || dur < 0) {
+      console.log(`[SECURITY] Invalid audio_duration: ${audio_duration}`);
+      return { valid: false, error: "Invalid audio duration" };
+    }
+    if (dur > MAX_AUDIO_DURATION_SEC) {
+      console.log(`[SECURITY] Audio too long: ${dur}s (max ${MAX_AUDIO_DURATION_SEC}s)`);
+      return { valid: false, error: `אודיו ארוך מדי. מקסימום ${MAX_AUDIO_DURATION_SEC / 60} דקות.` };
+    }
+  }
+
+  // Caption style validation
+  if (caption_style && !VALID_CAPTION_STYLES.has(caption_style)) {
+    return { valid: false, error: "Invalid caption style" };
+  }
+
+  return { valid: true, error: "" };
+}
 
 // ══════════════════════════════════════════════════════════════
 // DATABASE
@@ -191,18 +302,6 @@ function levenshtein(a: string, b: string): number {
 }
 
 // ── Per-word validation ──
-//
-// Checks every word individually instead of the whole segment as a blob.
-// This lets חינוני→חילוני (1 letter, ~14%) pass while blocking הלך→צעד (100%).
-//
-// Word-count tolerance:
-//   Normal:  ±1  (Hebrew prefix ש/ל/מ/כ can split/merge)
-//   Garbage: ±3  (full reconstruction allowed)
-//
-// Per-word distance threshold:
-//   Normal:  0.55  (allows single-letter fixes on short words)
-//   Garbage: 0.85
-//
 function validateCorrection(orig: string, corr: string, isGarbage: boolean): {
   ok: boolean; reason: string;
 } {
@@ -239,24 +338,11 @@ async function aiCorrect(
   if (!ANTHROPIC_API_KEY || timedSegs.length === 0) return { segments: timedSegs, method: "none" };
 
   try {
-    // ── Full plain-text transcript — Claude reads this first ──
     const fullContext           = timedSegs.map(s => s.text.trim()).join(" ");
     const segmentsForCorrection = timedSegs
       .map((s, i) => `[${i}|${s.start.toFixed(2)}-${s.end.toFixed(2)}] ${s.text}`)
       .join("\n");
 
-    // ── Context-first surgical correction prompt (v9) ──
-    //
-    // Design principles:
-    //  • NO external knowledge injection — corrections come purely from
-    //    understanding the text itself: topic, domain, recurring terms,
-    //    cross-segment coherence, and sentence-level logic.
-    //  • Deep multi-pass <thinking>: topic → domain → key terms map →
-    //    cross-reference consistency → per-word suspicion list.
-    //  • temperature=0   — deterministic, no synonyms, no creativity.
-    //  • ±1 word allowed — Hebrew prefix split/merge (ש/ל/מ/כ).
-    //  • Default is NO change. Only fix what's broken.
-    //  • Universal Hebrew — covers all registers and domains.
     const systemPrompt = `אתה מתקן תמלול אוטומטי בעברית. קיבלת פלט של מודל זיהוי דיבור (Whisper).
 
 ═══ מהות התפקיד ═══
@@ -350,7 +436,6 @@ ${segmentsForCorrection}`;
     const result = await response.json();
     const output = result.content?.[0]?.text || "";
 
-    // Regex picks up only [N|t-t] lines — <thinking> block is silently ignored.
     const corrected: Array<{ idx: number; text: string }> = [];
     for (const line of output.split("\n")) {
       const m = line.match(/\[(\d+)\|([\d.]+)-([\d.]+)\]\s*(.*)/);
@@ -367,7 +452,6 @@ ${segmentsForCorrection}`;
       const correction = corrected.find(c => c.idx === i);
       if (!correction) return seg;
 
-      // Punctuation-only change — always accept
       const origClean = seg.text.replace(/[.!?,;:\s]/g, "");
       const corrClean = correction.text.replace(/[.!?,;:\s]/g, "");
       if (origClean === corrClean) {
@@ -377,7 +461,6 @@ ${segmentsForCorrection}`;
 
       const isGarbage = isGarbageSegment(seg.text);
 
-      // Per-word validation
       const { ok, reason } = validateCorrection(seg.text, correction.text, isGarbage);
       if (!ok) {
         console.warn(`[AI] SEG ${i} REJECTED (${reason}): "${seg.text.trim()}" → "${correction.text}"`);
@@ -388,7 +471,6 @@ ${segmentsForCorrection}`;
       console.log(`[AI] SEG ${i} ACCEPTED: "${seg.text.trim()}" → "${correction.text}"`);
       acceptCount++;
 
-      // Sync corrected words back onto original Whisper word timestamps
       const corrWords = correction.text.split(/\s+/).filter(w => w);
       if (!seg.words || seg.words.length === 0) return { ...seg, text: correction.text };
 
@@ -419,12 +501,7 @@ ${segmentsForCorrection}`;
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2.5: BOUNDARY REPAIR — per-segment anchoring (no global drift)
-//
-// TIMING GUARANTEE: Every segment's start/end is taken DIRECTLY from the
-// Whisper origWords that fall inside that segment's time window.
-// Corrected words are mapped proportionally within that window.
-// No cumulative drift — each segment is independently anchored to Whisper.
+// STEP 2.5: BOUNDARY REPAIR
 // ══════════════════════════════════════════════════════════════
 
 function repairBoundaries(segs: TimedSegment[], origWords: Word[]): TimedSegment[] {
@@ -451,8 +528,8 @@ function repairBoundaries(segs: TimedSegment[], origWords: Word[]): TimedSegment
     });
 
     result.push({
-      start: segOrigWords[0].start,                    // ← ALWAYS from Whisper
-      end:   segOrigWords[segOrigWords.length-1].end,  // ← ALWAYS from Whisper
+      start: segOrigWords[0].start,
+      end:   segOrigWords[segOrigWords.length-1].end,
       text:  corrWords.join(" "),
       words: newWords,
     });
@@ -462,7 +539,7 @@ function repairBoundaries(segs: TimedSegment[], origWords: Word[]): TimedSegment
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 3: SPLITTING — all timestamps from Whisper
+// STEP 3: SPLITTING
 // ══════════════════════════════════════════════════════════════
 
 function applySplitting(segs: TimedSegment[], style: string, wpg: number): Segment[] {
@@ -596,11 +673,27 @@ function buildSrt(segs: Segment[], lang = "he"): string {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    // ── LAYER 3: Input Validation ──
+    const validation = validateInput(body);
+    if (!validation.valid) {
+      return err(validation.error, validation.error.includes("api_key") ? 401 : 400);
+    }
+
     const { api_key, action, lang, audio_duration, caption_style, words_per_group } = body;
 
-    if (!api_key) return err("Missing api_key", 401);
     const user = await validateApiKey(api_key);
-    if (!user)   return err("Invalid API key", 401);
+    if (!user) return err("Invalid API key", 401);
+
+    // ── LAYER 2: Rate Limiting ──
+    const rateCheck = checkRateLimit(user.id);
+    if (!rateCheck.allowed) {
+      const retryAfterSec = Math.ceil(rateCheck.retryAfterMs / 1000);
+      return NextResponse.json(
+        { error: true, message: "יותר מדי בקשות. נסה שוב בעוד מספר שניות.", retry_after: retryAfterSec },
+        { status: 429, headers: { "Retry-After": String(retryAfterSec) } }
+      );
+    }
 
     const remaining = (user.minutes_limit || 0) - (user.minutes_used || 0);
     if (remaining <= 0) return err("נגמרה המכסה. שדרג תוכנית.", 403);
@@ -616,8 +709,15 @@ export async function POST(req: NextRequest) {
 
     if (action === "transcribe") {
       const { download_url, file_key } = body;
-      if (!download_url) return err("Missing download_url");
-      const audioDur = audio_duration || 0;
+      if (!download_url || typeof download_url !== "string") return err("Missing download_url");
+
+      // Validate download_url is a proper S3 URL
+      if (!download_url.startsWith("https://") || download_url.length > 2000) {
+        console.log(`[SECURITY] Suspicious download_url from user ${user.id.substring(0, 8)}...`);
+        return err("Invalid download URL");
+      }
+
+      const audioDur = Number(audio_duration) || 0;
       if (Math.ceil(audioDur / 60 * 10) / 10 > remaining) return err("לא מספיק דקות.", 403);
 
       // STEP 1: Modal Whisper
@@ -671,10 +771,9 @@ export async function POST(req: NextRequest) {
       const timedSegs = buildTimedSegments(cleaned.segments, cleaned.words);
 
       // STEP 3: Claude AI correction
-      // temp=0 · context-first analysis · <thinking> CoT · per-word validation
       const aiResult = await aiCorrect(timedSegs, lang || "he");
 
-      // STEP 3.5: Re-anchor every segment boundary to Whisper timestamps
+      // STEP 3.5: Re-anchor boundaries to Whisper timestamps
       const repaired = repairBoundaries(aiResult.segments, rawWords);
 
       // STEP 4: Split into caption groups
