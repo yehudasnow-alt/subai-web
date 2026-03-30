@@ -8,6 +8,7 @@
  * TIMING:     Every timestamp comes from Whisper. We never invent times.
  * CORRECTION: Claude fixes only phonetic transcription errors — never word choices.
  * TEMP=0:     Deterministic output. No creativity, no guessing, no paraphrasing.
+ * VALIDATION: Per-word Levenshtein gate — each word checked individually, not the whole segment.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -17,23 +18,23 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export const maxDuration = 120;
 
-const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SUPABASE_URL         = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const AWS_REGION = process.env.AWS_REGION || "eu-north-1";
-const S3_BUCKET = process.env.S3_BUCKET || "subai-audio";
-const MODAL_ENDPOINT = process.env.MODAL_ENDPOINT_URL!;
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const AWS_REGION           = process.env.AWS_REGION   || "eu-north-1";
+const S3_BUCKET            = process.env.S3_BUCKET    || "subai-audio";
+const MODAL_ENDPOINT       = process.env.MODAL_ENDPOINT_URL!;
+const ANTHROPIC_API_KEY    = process.env.ANTHROPIC_API_KEY || "";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 const s3 = new S3Client({
   region: AWS_REGION,
-  credentials: { accessKeyId: process.env.AWS_ACCESS_KEY_ID!, secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY! }
+  credentials: { accessKeyId: process.env.AWS_ACCESS_KEY_ID!, secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY! },
 });
 
 function err(msg: string, status = 400) { return NextResponse.json({ error: true, message: msg }, { status }); }
 
-interface Segment    { start: number; end: number; text: string; }
-interface Word       { start: number; end: number; word: string; probability?: number; }
+interface Segment      { start: number; end: number; text: string; }
+interface Word         { start: number; end: number; word: string; probability?: number; }
 interface TimedSegment { start: number; end: number; text: string; words: Word[]; }
 
 // ══════════════════════════════════════════════════════════════
@@ -75,8 +76,7 @@ function buildTimedSegments(segments: Segment[], words: Word[]): TimedSegment[] 
     return segments.map(seg => ({
       ...seg,
       words: seg.text.split(/\s+/).filter(w => w).map((w, i, arr) => {
-        const dur = seg.end - seg.start;
-        const wd  = dur / arr.length;
+        const dur = seg.end - seg.start, wd = dur / arr.length;
         return { start: +(seg.start + i * wd).toFixed(3), end: +(seg.start + (i + 1) * wd).toFixed(3), word: w };
       }),
     }));
@@ -94,8 +94,8 @@ function buildTimedSegments(segments: Segment[], words: Word[]): TimedSegment[] 
       else wIdx++;
     }
     result.push({
-      start: sw.length > 0 ? sw[0].start            : seg.start,
-      end:   sw.length > 0 ? sw[sw.length-1].end    : seg.end,
+      start: sw.length > 0 ? sw[0].start         : seg.start,
+      end:   sw.length > 0 ? sw[sw.length-1].end : seg.end,
       text:  sw.length > 0 ? sw.map(w => w.word).join(" ") : seg.text,
       words: sw,
     });
@@ -131,18 +131,18 @@ function filterHallucinations(
   let removedCount = 0;
 
   for (let i = 0; i < segments.length; i++) {
-    const seg      = segments[i];
-    const dur      = seg.end - seg.start;
-    const text     = seg.text.trim();
-    const tw       = text.split(/\s+/).filter(w => w);
-    const unique   = new Set(tw.map(w => w.replace(/[.!?,;:]/g, ""))).size;
+    const seg    = segments[i];
+    const dur    = seg.end - seg.start;
+    const text   = seg.text.trim();
+    const tw     = text.split(/\s+/).filter(w => w);
+    const unique = new Set(tw.map(w => w.replace(/[.!?,;:]/g, ""))).size;
 
     let skip = false, reason = "";
 
     if (dur > 5  && unique <= 2 && tw.length >= 3) { skip = true; reason = `stuck loop: ${dur.toFixed(1)}s, ${unique} unique`; }
     if (dur > 6  && tw.length <= 1)                { skip = true; reason = `single word ${dur.toFixed(1)}s`; }
     if (dur > 10 && tw.length <= 3)                { skip = true; reason = `too long for content: ${dur.toFixed(1)}s, ${tw.length} words`; }
-    if (i > 0 && text === segments[i-1].text.trim()){ skip = true; reason = "exact duplicate"; }
+    if (i > 0 && text === segments[i-1].text.trim()) { skip = true; reason = "exact duplicate"; }
     if (prompt && text.length > 5) {
       const ct = text.replace(/[.!?,;:\s]/g, ""), cp = prompt.replace(/[.!?,;:\s]/g, "");
       if (cp.includes(ct) || ct.includes(cp)) { skip = true; reason = "prompt leak"; }
@@ -167,59 +167,111 @@ function filterHallucinations(
   return { segments, words };
 }
 
+// ── Levenshtein distance (normalised 0–1) ──
+function levenshtein(a: string, b: string): number {
+  if (a === b)   return 0;
+  if (!a.length) return 1;
+  if (!b.length) return 1;
+  const m: number[][] = [];
+  for (let i = 0; i <= a.length; i++) m[i] = [i];
+  for (let j = 0; j <= b.length; j++) m[0][j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      m[i][j] = Math.min(m[i-1][j]+1, m[i][j-1]+1, m[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
+  return m[a.length][b.length] / Math.max(a.length, b.length);
+}
+
+// ── Per-word validation ──
+//
+// Checks every word individually instead of the whole segment as a blob.
+// This lets חינוני→חילוני (1 letter, ~14%) pass while blocking הלך→צעד (100%).
+//
+// Word-count tolerance:
+//   Normal:  ±1  (Hebrew prefix ש/ל/מ/כ can split/merge)
+//   Garbage: ±3  (full reconstruction allowed)
+//
+// Per-word distance threshold:
+//   Normal:  0.55  (allows single-letter fixes on short words)
+//   Garbage: 0.85
+//
+function validateCorrection(orig: string, corr: string, isGarbage: boolean): {
+  ok: boolean; reason: string;
+} {
+  const strip = (s: string) => s.replace(/[.!?,;:״"']/g, "").trim();
+
+  const ow = orig.split(/\s+/).filter(w => w && !/^[.!?,;:]+$/.test(w));
+  const cw = corr.split(/\s+/).filter(w => w && !/^[.!?,;:]+$/.test(w));
+
+  const maxDiff = isGarbage ? 3 : 1;
+  const diff    = Math.abs(ow.length - cw.length);
+  if (diff > maxDiff) {
+    return { ok: false, reason: `word-count ${ow.length}→${cw.length} (diff=${diff}, max=${maxDiff})` };
+  }
+
+  const MAX_WORD_DIST = isGarbage ? 0.85 : 0.55;
+  const len = Math.min(ow.length, cw.length);
+
+  for (let i = 0; i < len; i++) {
+    const a = strip(ow[i]);
+    const b = strip(cw[i]);
+    if (a === b) continue;
+    const d = levenshtein(a, b);
+    if (d > MAX_WORD_DIST) {
+      return { ok: false, reason: `word[${i}] dist=${(d*100).toFixed(0)}% "${ow[i]}"→"${cw[i]}"` };
+    }
+  }
+
+  return { ok: true, reason: "" };
+}
+
 async function aiCorrect(
   timedSegs: TimedSegment[], language: string
 ): Promise<{ segments: TimedSegment[]; method: string }> {
   if (!ANTHROPIC_API_KEY || timedSegs.length === 0) return { segments: timedSegs, method: "none" };
 
   try {
-    // ── Full plain-text transcript for global context ──
-    // Claude reads this first so it understands the topic, speakers,
-    // register and recurring terms before touching a single segment.
-    const fullContext = timedSegs.map(s => s.text.trim()).join(" ");
-
-    // ── Indexed segments for correction output ──
+    // ── Full plain-text transcript — Claude reads this first ──
+    const fullContext           = timedSegs.map(s => s.text.trim()).join(" ");
     const segmentsForCorrection = timedSegs
       .map((s, i) => `[${i}|${s.start.toFixed(2)}-${s.end.toFixed(2)}] ${s.text}`)
       .join("\n");
 
     // ── The surgical correction prompt ──
     //
-    // Design principles:
-    //  1. temperature=0  → deterministic, no creativity, no guessing
-    //  2. 1:1 word ratio → Claude may not add or remove words, only fix letters
-    //  3. 1% doubt rule  → if unsure, do nothing
-    //  4. Full context   → global understanding before local decisions
-    //  5. Phonetic-only  → fix the letters inside Whisper's word, never swap it
-    //
-    // What we DO fix:   "הלק"→"הלך" / "נכנוה"→"נכונה" / "אל גור איתם"→"אלגוריתם"
-    // What we NEVER do: "הלך"→"צעד" / "גדול"→"עצום" / add/remove any word
-    const systemPrompt = `אתה עורך לשוני כירורגי ומדויק. תפקידך הבלעדי: לתקן שגיאות כתיב ופונטיקה בפלט של מודל זיהוי קול (Whisper).
+    // Design decisions:
+    //  • Chain-of-Thought via <thinking> block — Claude identifies the topic and
+    //    suspicious words before touching anything. The Regex parser ignores
+    //    everything outside [index|...] lines, so thinking is free.
+    //  • temperature=0   — deterministic, no synonyms, no creativity.
+    //  • ±1 word allowed — Hebrew prefix split/merge (ש/ל/מ/כ).
+    //  • 1% doubt rule   — default is NO change.
+    //  • Universal Hebrew — covers all registers: legal, medical, slang, tech.
+    const systemPrompt = `אתה מומחה אוניברסלי לתיקון תמלול ולשפה העברית על כל רבדיה (משפטית, רפואית, אקדמית, שפת רחוב וסלנג). קיבלת תמלול שנוצר על ידי מודל שמיעה (Whisper).
+תפקידך הבלעדי הוא לתקן שגיאות זיהוי פונטיות — מילים שוויספר שמע לא נכון — תוך שמירה אבסולוטית על הטקסט המקורי שביטא הדובר.
 
-שלב א — הבנת ההקשר לפני הכל:
-קרא את התמלול המלא שסופק לך. זהה את הנושא, הדוברים, המשלב הלשוני ומושגים חוזרים. ההקשר הכולל מאפשר לך להכריע בין אפשרויות פונטיות קרובות.
+תהליך העבודה שלך (חובה):
+לפני שאתה פולט את הסגמנטים המתוקנים, פתח תגית XML בשם <thinking>.
+בתוך התגית, רשום לעצמך:
+1. מהו נושא השיחה הכללי?
+2. זהה 3-5 מילים שהן בבירור טעויות שמיעה פונטיות — מילים שלא קיימות בעברית, או מילים שנשמעות דומה למשהו הגיוני בהקשר הזה.
+לאחר מכן סגור </thinking> ורק אז פלוט את הסגמנטים בפורמט הנדרש.
 
-שלב ב — תיקון פונטי והקשרי בלבד:
-עבור כל מילה שנראית שגויה, הסתכל על 5 המילים לפניה ו-5 אחריה ושאל: "מה נאמר כאן?" — ותקן רק את האותיות הלא נכונות בתוך המילה.
+חוקי ברזל (בלתי ניתנים לערעור):
 
-חוקי ברזל — ללא יוצא מן הכלל:
+1. כמות מילים — אסור להוסיף או למחוק מילים, למעט תחיליות עבריות (ש/ל/מ/כ/ב/ו) שהתמזגו או התפצלו בטעות (הפרש של מילה אחת בלבד).
 
-1. יחס מילים 1:1 — אסור בהחלט להוסיף מילה חדשה או למחוק מילה קיימת.
-   כמות המילים בכל שורת פלט חייבת להיות זהה לכמות המילים בשורת הקלט.
-
-2. תיקון אותיות בלבד — תקן רק אות שגויה, אות חסרה, אות מיותרת, או הומופון.
-   דוגמאות חוקיות: "הלק"→"הלך" / "נכנוה"→"נכונה" / "קרא לו"→"קרה לו"
-   אסור לחלוטין: להחליף מילה במילה בעלת משמעות דומה (הלך→צעד, גדול→עצום, אמר→ציין).
+2. תיקון אותיות בלבד — מותר לתקן: אות שגויה, אות חסרה, אות מיותרת, הומופון.
+   ✓ חינוני→חילוני / הלק→הלך / קרא→קרה / אל גור איתם→אלגוריתם
+   ✗ הלך→צעד / גדול→עצום / אמר→ציין (החלפת מילה — אסור לחלוטין)
 
 3. שמירה על שפת הדובר — אל תתקן שגיאות דקדוק של הדובר עצמו.
-   אם אמר "שלוש שקל" או "אני ילך" — השאר. זה הדובר, לא Whisper.
+   "שלוש שקל", "אני יגיד", "הוא אמרה" — השאר כצאתם.
 
-4. שימור מילות מילוי — כאילו, אממ, אה, נו, בעצם, פשוט, כזה — חובה להשאיר כצאתן.
+4. מילות מילוי — כאילו, אממ, אה, נו, כזה, טוב, אז — חובה להשאיר כצאתן. הן עוגני תזמון.
 
-5. כלל הספק — אם יש ספק כלשהו: אל תשנה. החזר את השורה כצאתה.
-   ברירת מחדל היא אי-שינוי, לא שינוי.
+5. כלל הספק — אם המשפט הגיוני גם ללא תיקון, או שיש ספק כלשהו: אל תשנה. ברירת המחדל היא אי-שינוי.
 
-פורמט פלט: [index|start-end] text — שורה אחת לכל סגמנט, כל הסגמנטים, ללא הקדמות.`;
+פורמט פלט: [index|start-end] text — שורה אחת לכל סגמנט, כל הסגמנטים, ללא הקדמות מחוץ ל-thinking.`;
 
     const userMessage = `תמלול מלא להבנת ההקשר — קרא לפני הכל:
 ===
@@ -234,16 +286,16 @@ ${segmentsForCorrection}`;
     const timeout    = setTimeout(() => controller.abort(), 50000);
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
+      method:  "POST",
       headers: {
-        "Content-Type":    "application/json",
-        "x-api-key":       ANTHROPIC_API_KEY,
+        "Content-Type":      "application/json",
+        "x-api-key":         ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
         model:       "claude-sonnet-4-20250514",
         max_tokens:  8192,
-        temperature: 0,          // ← deterministic: no creativity, no guessing
+        temperature: 0,
         system:      systemPrompt,
         messages:    [{ role: "user", content: userMessage }],
       }),
@@ -256,6 +308,7 @@ ${segmentsForCorrection}`;
     const result = await response.json();
     const output = result.content?.[0]?.text || "";
 
+    // Regex picks up only [N|t-t] lines — <thinking> block is silently ignored.
     const corrected: Array<{ idx: number; text: string }> = [];
     for (const line of output.split("\n")) {
       const m = line.match(/\[(\d+)\|([\d.]+)-([\d.]+)\]\s*(.*)/);
@@ -272,37 +325,25 @@ ${segmentsForCorrection}`;
       const correction = corrected.find(c => c.idx === i);
       if (!correction) return seg;
 
+      // Punctuation-only change — always accept
       const origClean = seg.text.replace(/[.!?,;:\s]/g, "");
       const corrClean = correction.text.replace(/[.!?,;:\s]/g, "");
-
-      // Punctuation-only change (no letter changes) — always accept
       if (origClean === corrClean) {
         if (seg.text.trim() !== correction.text) acceptCount++;
         return { ...seg, text: correction.text };
       }
 
-      // Hard safety net: Levenshtein distance gate
-      // Even with a good prompt, this catches any over-correction that slips through.
-      const dist      = levenshtein(origClean, corrClean);
       const isGarbage = isGarbageSegment(seg.text);
-      const threshold = isGarbage ? 0.85 : 0.35;
 
-      if (dist > threshold) {
-        console.warn(`[AI] SEG ${i} REJECTED (${(dist*100).toFixed(0)}%${isGarbage?" GARBAGE":""}): "${seg.text.trim()}" → "${correction.text}"`);
+      // Per-word validation
+      const { ok, reason } = validateCorrection(seg.text, correction.text, isGarbage);
+      if (!ok) {
+        console.warn(`[AI] SEG ${i} REJECTED (${reason}): "${seg.text.trim()}" → "${correction.text}"`);
         rejectCount++;
         return seg;
       }
 
-      // Word-count gate: reject if Claude added or removed words (1:1 rule enforcement)
-      const origWC = seg.text.split(/\s+/).filter(w => w && !/^[.!?,;:]+$/.test(w)).length;
-      const corrWC = correction.text.split(/\s+/).filter(w => w && !/^[.!?,;:]+$/.test(w)).length;
-      if (Math.abs(origWC - corrWC) > 0 && !isGarbage) {
-        console.warn(`[AI] SEG ${i} REJECTED word-count (${origWC}→${corrWC}): "${seg.text.trim()}" → "${correction.text}"`);
-        rejectCount++;
-        return seg;
-      }
-
-      console.log(`[AI] SEG ${i} ACCEPTED (${(dist*100).toFixed(0)}%): "${seg.text.trim()}" → "${correction.text}"`);
+      console.log(`[AI] SEG ${i} ACCEPTED: "${seg.text.trim()}" → "${correction.text}"`);
       acceptCount++;
 
       // Sync corrected words back onto original Whisper word timestamps
@@ -312,6 +353,12 @@ ${segmentsForCorrection}`;
       const syncedWords = seg.words.map((w, wi) =>
         wi < corrWords.length ? { ...w, word: corrWords[wi] } : w
       );
+      if (corrWords.length > seg.words.length) {
+        const last = seg.words[seg.words.length - 1];
+        for (let x = seg.words.length; x < corrWords.length; x++) {
+          syncedWords.push({ start: last.end, end: last.end + 0.1, word: corrWords[x] });
+        }
+      }
 
       return { ...seg, text: correction.text, words: syncedWords };
     });
@@ -327,19 +374,6 @@ ${segmentsForCorrection}`;
     console.error("[AI] Error:", e.message || e);
     return { segments: timedSegs, method: "error_fallback" };
   }
-}
-
-function levenshtein(a: string, b: string): number {
-  if (a === b)   return 0;
-  if (!a.length) return 1;
-  if (!b.length) return 1;
-  const m: number[][] = [];
-  for (let i = 0; i <= a.length; i++) m[i] = [i];
-  for (let j = 0; j <= b.length; j++) m[0][j] = j;
-  for (let i = 1; i <= a.length; i++)
-    for (let j = 1; j <= b.length; j++)
-      m[i][j] = Math.min(m[i-1][j]+1, m[i][j-1]+1, m[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
-  return m[a.length][b.length] / Math.max(a.length, b.length);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -366,8 +400,6 @@ function repairBoundaries(segs: TimedSegment[], origWords: Word[]): TimedSegment
     const corrWords = seg.text.split(/\s+/).filter(w => w);
     if (corrWords.length === 0) continue;
 
-    // Map each corrected word proportionally onto a Whisper timestamp.
-    // Every start/end comes directly from Whisper — nothing is invented.
     const newWords: Word[] = corrWords.map((word, i) => {
       const origIdx = Math.min(
         Math.round(i * segOrigWords.length / corrWords.length),
@@ -377,8 +409,8 @@ function repairBoundaries(segs: TimedSegment[], origWords: Word[]): TimedSegment
     });
 
     result.push({
-      start: segOrigWords[0].start,                      // ← ALWAYS from Whisper
-      end:   segOrigWords[segOrigWords.length-1].end,    // ← ALWAYS from Whisper
+      start: segOrigWords[0].start,                    // ← ALWAYS from Whisper
+      end:   segOrigWords[segOrigWords.length-1].end,  // ← ALWAYS from Whisper
       text:  corrWords.join(" "),
       words: newWords,
     });
@@ -397,7 +429,7 @@ function applySplitting(segs: TimedSegment[], style: string, wpg: number): Segme
   if (all.length === 0) return segs;
 
   if (style === "sentence") return splitSentence(all);
-  if (style && style.startsWith("word")) {
+  if (style?.startsWith("word")) {
     const n = parseInt(style.replace("word", "")) || wpg || 1;
     return splitWords(all, Math.max(1, Math.min(6, n)));
   }
@@ -411,7 +443,7 @@ function mkSeg(words: Word[]): Segment {
 function splitSentence(all: Word[]): Segment[] {
   const r: Segment[] = []; let c: Word[] = [];
   for (const w of all) { c.push(w); if (/[.!?]$/.test(w.word.trim())) { r.push(mkSeg(c)); c = []; } }
-  if (c.length > 0) r.push(mkSeg(c));
+  if (c.length) r.push(mkSeg(c));
   return r;
 }
 
@@ -424,7 +456,7 @@ function splitWords(all: Word[], gs: number): Segment[] {
       r.push(mkSeg(c)); c = [];
     }
   }
-  if (c.length > 0) r.push(mkSeg(c));
+  if (c.length) r.push(mkSeg(c));
   return r;
 }
 
@@ -438,14 +470,14 @@ function splitAuto(all: Word[]): Segment[] {
     ct = ct ? ct + " " + w.word : w.word;
     const dur = c.length > 1 ? w.end - c[0].start : 0;
 
-    if (/[.!?]$/.test(w.word.trim()))                          { r.push(mkSeg(c)); c = []; ct = ""; continue; }
-    if (/,$/.test(w.word.trim()) && ct.length >= 20)           { r.push(mkSeg(c)); c = []; ct = ""; continue; }
+    if (/[.!?]$/.test(w.word.trim()))                         { r.push(mkSeg(c)); c = []; ct = ""; continue; }
+    if (/,$/.test(w.word.trim()) && ct.length >= 20)          { r.push(mkSeg(c)); c = []; ct = ""; continue; }
 
     if (ct.length >= SOFT && c.length >= 2) {
       const chain = countChain(all, i+1);
-      if (chain === 0)                                         { r.push(mkSeg(c)); c = []; ct = ""; continue; }
+      if (!chain)                                             { r.push(mkSeg(c)); c = []; ct = ""; continue; }
       let extra = 0;
-      for (let x = 1; x <= chain && (i+x) < all.length; x++) extra += all[i+x].word.length + 1;
+      for (let x = 1; x <= chain && i+x < all.length; x++) extra += all[i+x].word.length + 1;
       if (ct.length + extra <= HARD) continue;
       const lb = countTail(c);
       if (lb > 0 && c.length - lb >= 2) {
@@ -455,9 +487,9 @@ function splitAuto(all: Word[]): Segment[] {
       r.push(mkSeg(c)); c = []; ct = ""; continue;
     }
 
-    if (ct.length >= HARD || dur >= MAXD)                      { r.push(mkSeg(c)); c = []; ct = ""; continue; }
+    if (ct.length >= HARD || dur >= MAXD)                     { r.push(mkSeg(c)); c = []; ct = ""; continue; }
   }
-  if (c.length > 0) r.push(mkSeg(c));
+  if (c.length) r.push(mkSeg(c));
   return r;
 }
 
@@ -487,7 +519,7 @@ function countTail(c: Word[]): number {
   let n = 0;
   for (let i = c.length-1; i >= 1; i--) {
     const a = c[i].word.trim().replace(/[,.:;!?]+$/g, "");
-    if (["הרב","הגאון","מורנו","ורבנו","המקובל","לא","אל","אין","את","של","על","אל","עם","כל","גם","כי","ש","כש"].includes(a)) n++;
+    if (["הרב","הגאון","מורנו","ורבנו","המקובל","לא","אל","אין","את","של","על","עם","כל","גם","כי","ש","כש"].includes(a)) n++;
     else break;
   }
   return n;
@@ -497,7 +529,7 @@ function countTail(c: Word[]): number {
 // SRT BUILDER (RTL)
 // ══════════════════════════════════════════════════════════════
 
-function buildSrt(segs: Segment[], lang: string = "he"): string {
+function buildSrt(segs: Segment[], lang = "he"): string {
   const rtl = lang === "he" || lang === "ar";
   const RLM = "\u200F";
   const ts  = (s: number) => {
@@ -531,17 +563,15 @@ export async function POST(req: NextRequest) {
     const remaining = (user.minutes_limit || 0) - (user.minutes_used || 0);
     if (remaining <= 0) return err("נגמרה המכסה. שדרג תוכנית.", 403);
 
-    // ── Get upload URL ──
     if (action === "get_upload_url") {
-      const fileKey    = `audio/${user.id}/${Date.now()}.mp3`;
-      const putCmd     = new PutObjectCommand({ Bucket: S3_BUCKET, Key: fileKey, ContentType: "audio/mpeg" });
-      const uploadUrl  = await getSignedUrl(s3, putCmd, { expiresIn: 300 });
-      const getCmd     = new GetObjectCommand({ Bucket: S3_BUCKET, Key: fileKey });
+      const fileKey     = `audio/${user.id}/${Date.now()}.mp3`;
+      const putCmd      = new PutObjectCommand({ Bucket: S3_BUCKET, Key: fileKey, ContentType: "audio/mpeg" });
+      const uploadUrl   = await getSignedUrl(s3, putCmd, { expiresIn: 300 });
+      const getCmd      = new GetObjectCommand({ Bucket: S3_BUCKET, Key: fileKey });
       const downloadUrl = await getSignedUrl(s3, getCmd, { expiresIn: 3600 });
       return NextResponse.json({ upload_url: uploadUrl, download_url: downloadUrl, file_key: fileKey, remaining_minutes: remaining });
     }
 
-    // ── Transcribe ──
     if (action === "transcribe") {
       const { download_url, file_key } = body;
       if (!download_url) return err("Missing download_url");
@@ -574,24 +604,24 @@ export async function POST(req: NextRequest) {
         return err("שגיאת תמלול: " + mr.error, 500);
       }
 
-      console.log(`[MODAL] Done in ${whisperMs}ms — ${mr.segments?.length || 0} segs, ${mr.words?.length || 0} words`);
+      console.log(`[MODAL] Done in ${whisperMs}ms — ${mr.segments?.length||0} segs, ${mr.words?.length||0} words`);
 
-      const rawSegs:  Segment[] = (mr.segments || []).map((s: any) => ({ start: s.start, end: s.end, text: (s.text || "").trim() }));
-      const rawWords: Word[]    = (mr.words    || []).map((w: any) => ({ start: w.start, end: w.end, word: (w.word || "").trim() }));
+      const rawSegs:  Segment[] = (mr.segments||[]).map((s: any) => ({ start: s.start, end: s.end, text: (s.text||"").trim() }));
+      const rawWords: Word[]    = (mr.words   ||[]).map((w: any) => ({ start: w.start, end: w.end, word: (w.word||"").trim() }));
 
       if (rawSegs.length === 0) {
-        await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "empty", 0, 0);
+        await logUsage(user.id, audioDur, lang||"he", "whisper-large-v3", "empty", 0, 0);
         return err("לא נמצא דיבור.", 200);
       }
 
-      // STEP 1.5: Filter Whisper hallucinations
+      // STEP 1.5: Filter hallucinations
       const hePrompt = lang === "he"
         ? "שלום, זהו תמלול מקצועי בעברית תקנית. סימני פיסוק: נקודה, פסיק, סימן שאלה. שמות אנשים, מקומות ומונחים מקצועיים נכתבים במדויק."
         : "";
       const cleaned = filterHallucinations(rawSegs, rawWords, hePrompt);
 
       if (cleaned.segments.length === 0) {
-        await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "empty", 0, 0);
+        await logUsage(user.id, audioDur, lang||"he", "whisper-large-v3", "empty", 0, 0);
         return err("לא נמצא דיבור.", 200);
       }
 
@@ -599,46 +629,42 @@ export async function POST(req: NextRequest) {
       const timedSegs = buildTimedSegments(cleaned.segments, cleaned.words);
 
       // STEP 3: Claude AI correction
-      //         temperature=0 + full context + 1:1 word ratio + 1% doubt rule
+      // temp=0 · full context · <thinking> CoT · per-word validation
       const aiResult = await aiCorrect(timedSegs, lang || "he");
 
-      // STEP 3.5: Repair boundaries — re-anchor every segment to Whisper timestamps
+      // STEP 3.5: Re-anchor every segment boundary to Whisper timestamps
       const repaired = repairBoundaries(aiResult.segments, rawWords);
 
       // STEP 4: Split into caption groups
       const wpg   = parseInt(words_per_group) || 1;
       const final = applySplitting(repaired, caption_style || "auto", wpg);
 
-      // STEP 5: Build SRT (RTL)
+      // STEP 5: Build SRT
       const srt = buildSrt(final, lang || "he");
 
       // STEP 6: Log & deduct
       const totalMs = Date.now() - t0;
-      const mins    = await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "completed", final.length, totalMs / 1000);
+      const mins    = await logUsage(user.id, audioDur, lang||"he", "whisper-large-v3", "completed", final.length, totalMs/1000);
       await deductMinutes(user.id, mins);
 
       if (file_key) s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: file_key })).catch(() => {});
 
-      console.log(`[DONE] ${final.length} segs, ${totalMs}ms (Whisper: ${whisperMs}ms, Claude: ${totalMs - whisperMs}ms)`);
+      console.log(`[DONE] ${final.length} segs, ${totalMs}ms (Whisper: ${whisperMs}ms, Claude: ${totalMs-whisperMs}ms)`);
 
       return NextResponse.json({
         ok: true, status: "completed", segments: final, srt,
-        language: mr.language || lang, elapsed: (totalMs / 1000).toFixed(1),
+        language: mr.language || lang, elapsed: (totalMs/1000).toFixed(1),
         count: final.length, minutes_charged: mins,
         minutes_remaining: remaining - mins, ai_correction: aiResult.method,
       });
     }
 
-    if (action === "check_job") {
-      return NextResponse.json({ ok: true, status: "completed", message: "Modal is synchronous" });
-    }
+    if (action === "check_job") return NextResponse.json({ ok: true, status: "completed", message: "Modal is synchronous" });
 
-    if (action === "status") {
-      return NextResponse.json({
-        ok: true, plan: user.plan, minutes_used: user.minutes_used,
-        minutes_limit: user.minutes_limit, minutes_remaining: remaining,
-      });
-    }
+    if (action === "status") return NextResponse.json({
+      ok: true, plan: user.plan, minutes_used: user.minutes_used,
+      minutes_limit: user.minutes_limit, minutes_remaining: remaining,
+    });
 
     return err("Unknown action");
 
