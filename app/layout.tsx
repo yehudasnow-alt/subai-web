@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     siteName: "SubAI",
   },
   verification: {
-    google: "dMYnWMJ-VgyzEywKALSAZhDxlf0m_5u1Sq8j5UoIoBU",
+    google: "BnaHBDpFLqb7f8eTjb84LKNlSOQpFajr_cL1K2QrFIw",
   },
 };
 export default function RootLayout({ children }: { children: React.ReactNode }) {
