@@ -45,7 +45,8 @@ export default function Privacy() {
           </Section>
 
           <Section title="יצירת קשר">
-            לכל שאלה בנוגע לפרטיות: snow333b@gmail.com
+            לכל שאלה בנוגע לפרטיות: yehudasnow@gmail.com
+
           </Section>
         </div>
 
