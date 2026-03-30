@@ -54,7 +54,6 @@ export default function Dashboard() {
   );
 
   const plans: Record<string, string> = { free: "חינמי", pro: "פרו ⭐", studio: "סטודיו 💎" };
-  const planLimits: Record<string, number> = { free: 10, pro: 120, studio: 250 };
   const used = profile?.minutes_used || 0;
   const limit = profile?.minutes_limit || 10;
   const remaining = Math.max(0, limit - used);
@@ -62,6 +61,15 @@ export default function Dashboard() {
   const displayName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email?.split("@")[0] || "";
   const currentPlan = profile?.plan || "free";
   const isCanceled = profile?.subscription_status === "canceled";
+
+  // Gradient icon style
+  const gradientIconStyle: React.CSSProperties = {
+    width: 48, height: 48, borderRadius: 14,
+    background: "linear-gradient(135deg, #7c3aed, #a855f7, #c084fc)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: 22, marginBottom: 8,
+    boxShadow: "0 4px 14px rgba(124,58,237,0.25)",
+  };
 
   return (
     <div className="page-wrap">
@@ -91,12 +99,12 @@ export default function Dashboard() {
         {/* ── Quick Actions ── */}
         <div className="action-grid">
           <a href="https://github.com/yehudasnow-alt/subai-web/releases/download/v3.3/SubAI_Setup.exe" className="action-card glass-card" style={{ borderRadius: 20, textDecoration: "none" }}>
-            <div className="ac-icon">⬇️</div>
+            <div style={gradientIconStyle}>⬇️</div>
             <div className="ac-title">הורד פלאגין</div>
             <div className="ac-desc">התקנה ל-Adobe Premiere Pro</div>
           </a>
           <Link href="/#how" className="action-card glass-card" style={{ borderRadius: 20, textDecoration: "none" }}>
-            <div className="ac-icon">🚀</div>
+            <div style={gradientIconStyle}>🚀</div>
             <div className="ac-title">איך להתחיל?</div>
             <div className="ac-desc">מדריך מהיר ב-4 שלבים</div>
           </Link>
@@ -113,7 +121,11 @@ export default function Dashboard() {
             <div className="price-name">חינמי</div>
             <div className="price-amount" style={{ fontSize: 32 }}>₪0</div>
             <div className="price-period">10 דקות</div>
-            <ul className="price-features"><li>עברית + אנגלית</li><li>תיקון AI</li><li>כתוביות בטיימליין</li></ul>
+            <ul className="price-features">
+              <li>תמלול בעברית</li>
+              <li>תיקון AI</li>
+              <li>ייצוא ישר לתוכנה</li>
+            </ul>
             {currentPlan === "free" ? <div className="price-btn" style={{ opacity: 0.5, cursor: "default" }}>התוכנית הנוכחית</div> :
               <div className="price-btn" style={{ opacity: 0.5, cursor: "default" }}>חינמי</div>}
           </div>
@@ -121,9 +133,14 @@ export default function Dashboard() {
           <div className={`price-card glass-card ${currentPlan === "pro" ? "current" : "popular"}`} style={{ borderRadius: 20 }}>
             {currentPlan === "pro" ? <div className="current-tag">התוכנית הנוכחית</div> : <div className="popular-tag">מומלץ</div>}
             <div className="price-name">פרו</div>
-            <div className="price-amount" style={{ fontSize: 32 }}>₪39<span>/חודש</span></div>
+            <div className="price-amount" style={{ fontSize: 32 }}>₪59<span>/חודש</span></div>
             <div className="price-period">120 דקות לחודש</div>
-            <ul className="price-features"><li>120 דקות תמלול</li><li>100+ שפות</li><li>תיקון AI מתקדם</li><li>מצב TikTok</li></ul>
+            <ul className="price-features">
+              <li>120 דקות תמלול</li>
+              <li>תיקון AI מתקדם</li>
+              <li>מצב TikTok</li>
+              <li>ייצוא ישר לתוכנה</li>
+            </ul>
             {currentPlan === "pro" ?
               <button className="price-btn" onClick={handleCancel} disabled={cancelLoading || isCanceled} style={{ color: "#e55", borderColor: "rgba(239,68,68,0.2)" }}>
                 {isCanceled ? "ביטול בתהליך" : cancelLoading ? "מבטל..." : "בטל מנוי"}
@@ -134,9 +151,14 @@ export default function Dashboard() {
           <div className={`price-card glass-card ${currentPlan === "studio" ? "current" : ""}`} style={{ borderRadius: 20 }}>
             {currentPlan === "studio" && <div className="current-tag">התוכנית הנוכחית</div>}
             <div className="price-name">סטודיו</div>
-            <div className="price-amount" style={{ fontSize: 32 }}>₪99<span>/חודש</span></div>
-            <div className="price-period">250 דקות לחודש</div>
-            <ul className="price-features"><li>250 דקות תמלול</li><li>100+ שפות</li><li>תיקון AI מתקדם</li><li>תמיכה VIP</li></ul>
+            <div className="price-amount" style={{ fontSize: 32 }}>₪180<span>/חודש</span></div>
+            <div className="price-period">500 דקות לחודש</div>
+            <ul className="price-features">
+              <li>500 דקות תמלול</li>
+              <li>תיקון AI מתקדם</li>
+              <li>מצב TikTok</li>
+              <li>ייצוא ישר לתוכנה</li>
+            </ul>
             {currentPlan === "studio" ?
               <button className="price-btn" onClick={handleCancel} disabled={cancelLoading || isCanceled} style={{ color: "#e55", borderColor: "rgba(239,68,68,0.2)" }}>
                 {isCanceled ? "ביטול בתהליך" : cancelLoading ? "מבטל..." : "בטל מנוי"}
