@@ -39,7 +39,7 @@ export default function Home() {
 
       {/* ── Stats ── */}
       <section className="stats" style={a(0.3)}>
-        {[["99%","דיוק בעברית"],["2 שניות","תמלול בענן"],["AI","תיקון טקסט חכם"],["0","התקנות נוספות"]].map(([val,label],i)=>(
+        {[["95%","דיוק בעברית"],["GPU","תמלול בענן"],["AI","תיקון טקסט חכם"],["0","התקנות נוספות"]].map(([val,label],i)=>(
           <div key={i} className="stat-item"><div className="stat-val">{val}</div><div className="stat-label">{label}</div></div>
         ))}
       </section>
