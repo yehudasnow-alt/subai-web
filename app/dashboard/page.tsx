@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import Nav from "../../components/Nav";
@@ -10,6 +10,7 @@ export default function Dashboard() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const guideRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const ps = new URLSearchParams(window.location.search).get("plugin_session");
@@ -25,6 +26,10 @@ export default function Dashboard() {
       setProfile(p); setLoading(false);
     });
   }, []);
+
+  function scrollToGuide() {
+    guideRef.current?.scrollIntoView({ behavior: "smooth" });
+  }
 
   async function handleLogout() { await supabase.auth.signOut(); window.location.href = "/"; }
 
@@ -47,13 +52,20 @@ export default function Dashboard() {
 
   const planNames: Record<string, string> = { free: "חינמי", pro: "פרו ⭐", studio: "סטודיו 💎" };
 
-  // Gradient icon style
   const gradientIconStyle: React.CSSProperties = {
     width: 48, height: 48, borderRadius: 14,
     background: "linear-gradient(135deg, #7c3aed, #a855f7, #c084fc)",
     display: "flex", alignItems: "center", justifyContent: "center",
     fontSize: 22, marginBottom: 8,
     boxShadow: "0 4px 14px rgba(124,58,237,0.25)",
+  };
+
+  const stepNumStyle: React.CSSProperties = {
+    width: 36, height: 36, borderRadius: 12,
+    background: "linear-gradient(135deg, #7c3aed, #a855f7)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: 15, fontWeight: 800, color: "#fff",
+    flexShrink: 0,
   };
 
   return (
@@ -87,11 +99,11 @@ export default function Dashboard() {
             <div className="ac-title">הורד פלאגין</div>
             <div className="ac-desc">התקנה ל-Adobe Premiere Pro</div>
           </a>
-          <Link href="/#how" className="action-card glass-card" style={{ borderRadius: 20, textDecoration: "none" }}>
+          <div onClick={scrollToGuide} className="action-card glass-card" style={{ borderRadius: 20, textDecoration: "none", cursor: "pointer" }}>
             <div style={gradientIconStyle}>🚀</div>
             <div className="ac-title">איך להתחיל?</div>
             <div className="ac-desc">מדריך מהיר ב-4 שלבים</div>
-          </Link>
+          </div>
         </div>
 
         {/* ── Buy Minutes ── */}
@@ -99,7 +111,6 @@ export default function Dashboard() {
           {remaining <= 0 ? "קנה דקות" : "קנה עוד דקות"}
         </h2>
         <div className="price-grid" style={{ maxWidth: "100%" }}>
-          {/* Pro */}
           <div className="price-card glass-card popular" style={{ borderRadius: 20 }}>
             <div className="popular-tag">הכי פופולרי</div>
             <div className="price-name">פרו</div>
@@ -113,7 +124,6 @@ export default function Dashboard() {
             </ul>
             <a href="/api/checkout?plan=pro" className="price-btn primary">קנה חבילת פרו ←</a>
           </div>
-          {/* Studio */}
           <div className="price-card glass-card" style={{ borderRadius: 20 }}>
             <div className="price-name">סטודיו</div>
             <div className="price-amount" style={{ fontSize: 32 }}>₪180</div>
@@ -125,6 +135,27 @@ export default function Dashboard() {
               <li>ייצוא ישר לתוכנה</li>
             </ul>
             <a href="/api/checkout?plan=studio" className="price-btn">קנה חבילת סטודיו</a>
+          </div>
+        </div>
+
+        {/* ── Guide ── */}
+        <div ref={guideRef} style={{ marginTop: 48 }}>
+          <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 20, color: "#1a1a2e" }}>🚀 מתחילים בדקה</h2>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {[
+              ["1", "הורד והתקן", "לחץ על ״הורד פלאגין״ למעלה והרץ את ההתקנה. סגור את Premiere לפני ההתקנה."],
+              ["2", "פתח את Premiere", "פתח פרויקט ולחץ Window → Extensions → SubAI. הפלאגין ייפתח בחלונית בצד."],
+              ["3", "סמן קטע לתמלול", "הגדר נקודות In ו-Out בטיימליין על הקטע שרוצים לתמלל."],
+              ["4", "לחץ ״תמלל״ — וזהו!", "SubAI מתמלל בענן, מתקן עם AI, ומכניס כתוביות ישירות לתוכנה. הכל אוטומטי."],
+            ].map(([num, title, desc]) => (
+              <div key={num} className="glass-card" style={{ borderRadius: 16, padding: "16px 20px", display: "flex", gap: 16, alignItems: "flex-start" }}>
+                <div style={stepNumStyle}>{num}</div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e", marginBottom: 4 }}>{title}</div>
+                  <div style={{ fontSize: 13.5, color: "#666", lineHeight: 1.6 }}>{desc}</div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
