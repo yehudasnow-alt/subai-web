@@ -1,9 +1,8 @@
 /**
  * SubAI — Checkout Route
  * GET /api/checkout?plan=pro|studio
- * Redirects to Stripe Checkout with correct price ID
+ * Redirects to Stripe Checkout — one-time payment for minute packages
  */
-
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
@@ -12,8 +11,13 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: "2023-10
 const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 const PRICES: Record<string, string> = {
-  pro: process.env.STRIPE_PRICE_PRO_MONTHLY || "",
-  studio: process.env.STRIPE_PRICE_STUDIO_MONTHLY || "",
+  pro:    process.env.STRIPE_PRICE_PRO    || "",
+  studio: process.env.STRIPE_PRICE_STUDIO || "",
+};
+
+const PLAN_MINUTES: Record<string, number> = {
+  pro:    120,
+  studio: 500,
 };
 
 export async function GET(req: NextRequest) {
@@ -35,25 +39,25 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Get current user from cookie/session
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    // Create Stripe checkout session
+    // Create Stripe checkout session — ONE-TIME payment
     const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
+      mode: "payment",
       payment_method_types: ["card"],
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${req.nextUrl.origin}/dashboard?upgraded=true`,
-      cancel_url: `${req.nextUrl.origin}/#pricing`,
-      metadata: { plan },
+      success_url: `${req.nextUrl.origin}/dashboard?purchased=true`,
+      cancel_url:  `${req.nextUrl.origin}/#pricing`,
+      metadata: {
+        plan,
+        minutes: String(PLAN_MINUTES[plan] || 0),
+      },
       allow_promotion_codes: true,
     });
 
     if (session.url) {
       return NextResponse.redirect(session.url);
     }
-
     return NextResponse.redirect(new URL("/#pricing", req.url));
+
   } catch (e: any) {
     console.error("Checkout error:", e.message);
     return NextResponse.redirect(new URL("/#pricing", req.url));
