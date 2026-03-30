@@ -5,8 +5,9 @@
  * Modal Whisper (sync, ~2s) → Claude AI correction → Smart splitting → RTL SRT
  * No polling, no cold start. Single synchronous request.
  *
- * TIMING: Every timestamp comes from Whisper. We never invent times.
- * CORRECTION: Claude is a proofreader. Fixes only impossible words.
+ * TIMING:     Every timestamp comes from Whisper. We never invent times.
+ * CORRECTION: Claude fixes only phonetic transcription errors — never word choices.
+ * TEMP=0:     Deterministic output. No creativity, no guessing, no paraphrasing.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -31,8 +32,8 @@ const s3 = new S3Client({
 
 function err(msg: string, status = 400) { return NextResponse.json({ error: true, message: msg }, { status }); }
 
-interface Segment { start: number; end: number; text: string; }
-interface Word { start: number; end: number; word: string; probability?: number; }
+interface Segment    { start: number; end: number; text: string; }
+interface Word       { start: number; end: number; word: string; probability?: number; }
 interface TimedSegment { start: number; end: number; text: string; words: Word[]; }
 
 // ══════════════════════════════════════════════════════════════
@@ -75,7 +76,7 @@ function buildTimedSegments(segments: Segment[], words: Word[]): TimedSegment[] 
       ...seg,
       words: seg.text.split(/\s+/).filter(w => w).map((w, i, arr) => {
         const dur = seg.end - seg.start;
-        const wd = dur / arr.length;
+        const wd  = dur / arr.length;
         return { start: +(seg.start + i * wd).toFixed(3), end: +(seg.start + (i + 1) * wd).toFixed(3), word: w };
       }),
     }));
@@ -88,21 +89,21 @@ function buildTimedSegments(segments: Segment[], words: Word[]): TimedSegment[] 
     const sw: Word[] = [];
     while (wIdx < words.length) {
       const w = words[wIdx];
-      if (w.start >= seg.start - 0.15 && w.start < seg.end + 0.15) { sw.push(w); wIdx++; }
+      if      (w.start >= seg.start - 0.15 && w.start < seg.end + 0.15) { sw.push(w); wIdx++; }
       else if (w.start >= seg.end + 0.15) break;
       else wIdx++;
     }
     result.push({
-      start: sw.length > 0 ? sw[0].start : seg.start,
-      end: sw.length > 0 ? sw[sw.length - 1].end : seg.end,
-      text: sw.length > 0 ? sw.map(w => w.word).join(" ") : seg.text,
+      start: sw.length > 0 ? sw[0].start            : seg.start,
+      end:   sw.length > 0 ? sw[sw.length-1].end    : seg.end,
+      text:  sw.length > 0 ? sw.map(w => w.word).join(" ") : seg.text,
       words: sw,
     });
   }
 
   if (wIdx < words.length) {
     const rem = words.slice(wIdx);
-    result.push({ start: rem[0].start, end: rem[rem.length - 1].end, text: rem.map(w => w.word).join(" "), words: rem });
+    result.push({ start: rem[0].start, end: rem[rem.length-1].end, text: rem.map(w => w.word).join(" "), words: rem });
   }
 
   return result;
@@ -113,55 +114,43 @@ function buildTimedSegments(segments: Segment[], words: Word[]): TimedSegment[] 
 // ══════════════════════════════════════════════════════════════
 
 function isGarbageSegment(text: string): boolean {
-  const latin = (text.match(/[a-zA-Z]/g) || []).length;
-  const greek = (text.match(/[\u0370-\u03FF]/g) || []).length;
+  const latin   = (text.match(/[a-zA-Z]/g)        || []).length;
+  const greek   = (text.match(/[\u0370-\u03FF]/g) || []).length;
   const symbols = (text.match(/[Ó€¡¢£¥©®™°±×÷]/g) || []).length;
-  const total = text.replace(/\s/g, "").length;
+  const total   = text.replace(/\s/g, "").length;
   if (total === 0) return true;
   return (latin + greek + symbols) / total > 0.3;
 }
 
 // ── Whisper Hallucination Filter ──
-function filterHallucinations(segments: Segment[], words: Word[], prompt: string): { segments: Segment[]; words: Word[] } {
+function filterHallucinations(
+  segments: Segment[], words: Word[], prompt: string
+): { segments: Segment[]; words: Word[] } {
   const filtered: Segment[] = [];
   const filteredWords: Word[] = [];
   let removedCount = 0;
 
   for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i];
-    const dur = seg.end - seg.start;
-    const text = seg.text.trim();
-    const textWords = text.split(/\s+/).filter(w => w);
-    const uniqueWords = new Set(textWords.map(w => w.replace(/[.!?,;:]/g, ""))).size;
+    const seg      = segments[i];
+    const dur      = seg.end - seg.start;
+    const text     = seg.text.trim();
+    const tw       = text.split(/\s+/).filter(w => w);
+    const unique   = new Set(tw.map(w => w.replace(/[.!?,;:]/g, ""))).size;
 
-    let skip = false;
-    let reason = "";
+    let skip = false, reason = "";
 
-    if (dur > 5 && uniqueWords <= 2 && textWords.length >= 3) {
-      skip = true; reason = `stuck loop: ${dur.toFixed(1)}s, ${uniqueWords} unique words`;
-    }
-    if (dur > 6 && textWords.length <= 1) {
-      skip = true; reason = `single word ${dur.toFixed(1)}s`;
-    }
-    if (dur > 10 && textWords.length <= 3) {
-      skip = true; reason = `too long for content: ${dur.toFixed(1)}s, ${textWords.length} words`;
-    }
-    if (i > 0 && text === segments[i - 1].text.trim()) {
-      skip = true; reason = "exact duplicate";
-    }
+    if (dur > 5  && unique <= 2 && tw.length >= 3) { skip = true; reason = `stuck loop: ${dur.toFixed(1)}s, ${unique} unique`; }
+    if (dur > 6  && tw.length <= 1)                { skip = true; reason = `single word ${dur.toFixed(1)}s`; }
+    if (dur > 10 && tw.length <= 3)                { skip = true; reason = `too long for content: ${dur.toFixed(1)}s, ${tw.length} words`; }
+    if (i > 0 && text === segments[i-1].text.trim()){ skip = true; reason = "exact duplicate"; }
     if (prompt && text.length > 5) {
-      const cleanText = text.replace(/[.!?,;:\s]/g, "");
-      const cleanPrompt = prompt.replace(/[.!?,;:\s]/g, "");
-      if (cleanPrompt.includes(cleanText) || cleanText.includes(cleanPrompt)) {
-        skip = true; reason = "prompt leak";
-      }
+      const ct = text.replace(/[.!?,;:\s]/g, ""), cp = prompt.replace(/[.!?,;:\s]/g, "");
+      if (cp.includes(ct) || ct.includes(cp)) { skip = true; reason = "prompt leak"; }
     }
-    if (textWords.length >= 4 && uniqueWords <= 2) {
-      skip = true; reason = `repeating pattern: "${textWords.slice(0, 3).join(" ")}..."`;
-    }
+    if (tw.length >= 4 && unique <= 2) { skip = true; reason = `repeating pattern: "${tw.slice(0,3).join(" ")}..."`; }
 
     if (skip) {
-      console.log(`[FILTER] Removed seg ${i} (${reason}): "${text.substring(0, 40)}${text.length > 40 ? "..." : ""}"`);
+      console.log(`[FILTER] Removed seg ${i} (${reason}): "${text.substring(0,40)}${text.length>40?"...":""}"`);
       removedCount++;
     } else {
       filtered.push(seg);
@@ -170,62 +159,65 @@ function filterHallucinations(segments: Segment[], words: Word[], prompt: string
 
   if (removedCount > 0 && words.length > 0) {
     for (const w of words) {
-      const inFiltered = filtered.some(s => w.start >= s.start - 0.1 && w.start < s.end + 0.1);
-      if (inFiltered) filteredWords.push(w);
+      if (filtered.some(s => w.start >= s.start - 0.1 && w.start < s.end + 0.1)) filteredWords.push(w);
     }
-    console.log(`[FILTER] Removed ${removedCount} hallucinated segments, kept ${filtered.length}. Words: ${words.length}→${filteredWords.length}`);
+    console.log(`[FILTER] Removed ${removedCount} hallucinated segs, kept ${filtered.length}. Words: ${words.length}→${filteredWords.length}`);
     return { segments: filtered, words: filteredWords };
   }
-
   return { segments, words };
 }
 
-async function aiCorrect(timedSegs: TimedSegment[], language: string): Promise<{ segments: TimedSegment[]; method: string }> {
-  if (!ANTHROPIC_API_KEY || timedSegs.length === 0) {
-    return { segments: timedSegs, method: "none" };
-  }
+async function aiCorrect(
+  timedSegs: TimedSegment[], language: string
+): Promise<{ segments: TimedSegment[]; method: string }> {
+  if (!ANTHROPIC_API_KEY || timedSegs.length === 0) return { segments: timedSegs, method: "none" };
 
   try {
-    // ── Full plain-text transcript — Claude reads this first to understand
-    //    the topic, speakers, register and recurring terms before touching anything ──
+    // ── Full plain-text transcript for global context ──
+    // Claude reads this first so it understands the topic, speakers,
+    // register and recurring terms before touching a single segment.
     const fullContext = timedSegs.map(s => s.text.trim()).join(" ");
 
     // ── Indexed segments for correction output ──
-    const segmentsForCorrection = timedSegs.map((s, i) =>
-      `[${i}|${s.start.toFixed(2)}-${s.end.toFixed(2)}] ${s.text}`
-    ).join("\n");
+    const segmentsForCorrection = timedSegs
+      .map((s, i) => `[${i}|${s.start.toFixed(2)}-${s.end.toFixed(2)}] ${s.text}`)
+      .join("\n");
 
-    // ── Context-aware surgical prompt ──
+    // ── The surgical correction prompt ──
     //
-    // Philosophy:
-    //   Claude already masters Hebrew at a native level — we don't teach it the language.
-    //   We activate its full attention mechanism by instructing it to read the entire
-    //   transcript first, then use that global context to decide on each word.
+    // Design principles:
+    //  1. temperature=0  → deterministic, no creativity, no guessing
+    //  2. 1:1 word ratio → Claude may not add or remove words, only fix letters
+    //  3. 1% doubt rule  → if unsure, do nothing
+    //  4. Full context   → global understanding before local decisions
+    //  5. Phonetic-only  → fix the letters inside Whisper's word, never swap it
     //
-    //   The hard constraint: fix only the letters inside the existing word (phonetic
-    //   errors, missing/extra characters, homophones). Never swap a word for a synonym
-    //   or a "better" word — even if it sounds more natural. The source is Whisper;
-    //   every word it produced was actually spoken. We only repair the transcription
-    //   of that word, not the speaker's choice of word.
-    const systemPrompt = `אתה מתמלל בכיר המתמחה בתיקון שגיאות זיהוי קול אוטומטי (Whisper) בעברית.
+    // What we DO fix:   "הלק"→"הלך" / "נכנוה"→"נכונה" / "אל גור איתם"→"אלגוריתם"
+    // What we NEVER do: "הלך"→"צעד" / "גדול"→"עצום" / add/remove any word
+    const systemPrompt = `אתה עורך לשוני כירורגי ומדויק. תפקידך הבלעדי: לתקן שגיאות כתיב ופונטיקה בפלט של מודל זיהוי קול (Whisper).
 
-שלב א — קריאה מלאה לפני הכל:
-קרא את התמלול המלא שסופק לך. זהה את הנושא, הדוברים, המשלב הלשוני, שמות חוזרים ומושגים מקצועיים. ההקשר הכולל הוא הכלי העיקרי שלך — לא רשימות כללים.
+שלב א — הבנת ההקשר לפני הכל:
+קרא את התמלול המלא שסופק לך. זהה את הנושא, הדוברים, המשלב הלשוני ומושגים חוזרים. ההקשר הכולל מאפשר לך להכריע בין אפשרויות פונטיות קרובות.
 
-שלב ב — תיקון מבוסס הקשר:
-עבור כל מילה שנראית שגויה, הסתכל על 5 המילים לפניה ו-5 המילים אחריה ושאל: "מה הנושא שמדובר עליו כאן, ומהי המילה שנשמעת דומה אך נכתבת נכון?"
-השגיאות של Whisper הן כמעט תמיד פונטיות: אות שגויה, אות חסרה, אות מיותרת, הומופון.
+שלב ב — תיקון פונטי והקשרי בלבד:
+עבור כל מילה שנראית שגויה, הסתכל על 5 המילים לפניה ו-5 אחריה ושאל: "מה נאמר כאן?" — ותקן רק את האותיות הלא נכונות בתוך המילה.
 
-גבול ברזל אחד — מה שאסור בהחלט:
-תיקון לגיטימי: לתקן אותיות בתוך המילה שוויספר כתב (הלק→הלך, נכנוה→נכונה, קרא→קרה).
-אסור לחלוטין: להחליף מילה במילה אחרת בעלת משמעות דומה, גם אם נשמעת "יותר טבעית" (הלך→צעד, גדול→עצום, אמר→ציין).
-הדובר בחר את המילה שבחר — תפקידך לתקן את הכתיב של אותה מילה, לא לשנות את הבחירה שלו.
+חוקי ברזל — ללא יוצא מן הכלל:
 
-כללים נוספים:
-- שמור על מילות מילוי בדיוק (כאילו, אממ, אה, נו, בעצם, פשוט, כזה) — הן נאמרו
-- אל תשנה שמות, מותגים, מושגים מקצועיים
-- אל תוסיף מילים ואל תמחק מילים
-- אם השורה נכונה — החזר אותה כצאתה, ללא שינוי
+1. יחס מילים 1:1 — אסור בהחלט להוסיף מילה חדשה או למחוק מילה קיימת.
+   כמות המילים בכל שורת פלט חייבת להיות זהה לכמות המילים בשורת הקלט.
+
+2. תיקון אותיות בלבד — תקן רק אות שגויה, אות חסרה, אות מיותרת, או הומופון.
+   דוגמאות חוקיות: "הלק"→"הלך" / "נכנוה"→"נכונה" / "קרא לו"→"קרה לו"
+   אסור לחלוטין: להחליף מילה במילה בעלת משמעות דומה (הלך→צעד, גדול→עצום, אמר→ציין).
+
+3. שמירה על שפת הדובר — אל תתקן שגיאות דקדוק של הדובר עצמו.
+   אם אמר "שלוש שקל" או "אני ילך" — השאר. זה הדובר, לא Whisper.
+
+4. שימור מילות מילוי — כאילו, אממ, אה, נו, בעצם, פשוט, כזה — חובה להשאיר כצאתן.
+
+5. כלל הספק — אם יש ספק כלשהו: אל תשנה. החזר את השורה כצאתה.
+   ברירת מחדל היא אי-שינוי, לא שינוי.
 
 פורמט פלט: [index|start-end] text — שורה אחת לכל סגמנט, כל הסגמנטים, ללא הקדמות.`;
 
@@ -239,20 +231,21 @@ ${fullContext}
 ${segmentsForCorrection}`;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 50000);
+    const timeout    = setTimeout(() => controller.abort(), 50000);
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
+        "Content-Type":    "application/json",
+        "x-api-key":       ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 8192,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userMessage }],
+        model:       "claude-sonnet-4-20250514",
+        max_tokens:  8192,
+        temperature: 0,          // ← deterministic: no creativity, no guessing
+        system:      systemPrompt,
+        messages:    [{ role: "user", content: userMessage }],
       }),
       signal: controller.signal,
     });
@@ -282,54 +275,50 @@ ${segmentsForCorrection}`;
       const origClean = seg.text.replace(/[.!?,;:\s]/g, "");
       const corrClean = correction.text.replace(/[.!?,;:\s]/g, "");
 
+      // Punctuation-only change (no letter changes) — always accept
       if (origClean === corrClean) {
         if (seg.text.trim() !== correction.text) acceptCount++;
         return { ...seg, text: correction.text };
       }
 
-      const dist = levenshtein(origClean, corrClean);
+      // Hard safety net: Levenshtein distance gate
+      // Even with a good prompt, this catches any over-correction that slips through.
+      const dist      = levenshtein(origClean, corrClean);
       const isGarbage = isGarbageSegment(seg.text);
       const threshold = isGarbage ? 0.85 : 0.35;
 
       if (dist > threshold) {
-        console.warn(`[AI] SEG ${i} REJECTED (${(dist * 100).toFixed(0)}%${isGarbage ? " GARBAGE" : ""}): "${seg.text.trim()}" → "${correction.text}"`);
+        console.warn(`[AI] SEG ${i} REJECTED (${(dist*100).toFixed(0)}%${isGarbage?" GARBAGE":""}): "${seg.text.trim()}" → "${correction.text}"`);
         rejectCount++;
         return seg;
       }
 
+      // Word-count gate: reject if Claude added or removed words (1:1 rule enforcement)
       const origWC = seg.text.split(/\s+/).filter(w => w && !/^[.!?,;:]+$/.test(w)).length;
       const corrWC = correction.text.split(/\s+/).filter(w => w && !/^[.!?,;:]+$/.test(w)).length;
-      if (Math.abs(origWC - corrWC) > 2 && !isGarbage) {
-        console.warn(`[AI] SEG ${i} REJECTED (words ${origWC}→${corrWC}): "${seg.text.trim()}" → "${correction.text}"`);
+      if (Math.abs(origWC - corrWC) > 0 && !isGarbage) {
+        console.warn(`[AI] SEG ${i} REJECTED word-count (${origWC}→${corrWC}): "${seg.text.trim()}" → "${correction.text}"`);
         rejectCount++;
         return seg;
       }
 
-      console.log(`[AI] SEG ${i} ACCEPTED (${(dist * 100).toFixed(0)}%): "${seg.text.trim()}" → "${correction.text}"`);
+      console.log(`[AI] SEG ${i} ACCEPTED (${(dist*100).toFixed(0)}%): "${seg.text.trim()}" → "${correction.text}"`);
       acceptCount++;
 
+      // Sync corrected words back onto original Whisper word timestamps
       const corrWords = correction.text.split(/\s+/).filter(w => w);
-      if (!seg.words || seg.words.length === 0) {
-        return { ...seg, text: correction.text };
-      }
-      const syncedWords = seg.words.map((w, wi) => {
-        if (wi < corrWords.length) return { ...w, word: corrWords[wi] };
-        return w;
-      });
-      if (corrWords.length > seg.words.length) {
-        const last = seg.words[seg.words.length - 1];
-        if (last) {
-          for (let extra = seg.words.length; extra < corrWords.length; extra++) {
-            syncedWords.push({ start: last.end, end: last.end + 0.15, word: corrWords[extra] });
-          }
-        }
-      }
+      if (!seg.words || seg.words.length === 0) return { ...seg, text: correction.text };
+
+      const syncedWords = seg.words.map((w, wi) =>
+        wi < corrWords.length ? { ...w, word: corrWords[wi] } : w
+      );
 
       return { ...seg, text: correction.text, words: syncedWords };
     });
 
     console.log(`[AI] SUMMARY: ${acceptCount} accepted, ${rejectCount} rejected, ${timedSegs.length - acceptCount - rejectCount} unchanged`);
     return { segments: fixed, method: "claude" };
+
   } catch (e: any) {
     if (e.name === "AbortError") {
       console.warn(`[AI] Claude timeout (50s) for ${timedSegs.length} segments — using Whisper original`);
@@ -341,7 +330,7 @@ ${segmentsForCorrection}`;
 }
 
 function levenshtein(a: string, b: string): number {
-  if (a === b) return 0;
+  if (a === b)   return 0;
   if (!a.length) return 1;
   if (!b.length) return 1;
   const m: number[][] = [];
@@ -368,37 +357,28 @@ function repairBoundaries(segs: TimedSegment[], origWords: Word[]): TimedSegment
   const result: TimedSegment[] = [];
 
   for (const seg of segs) {
-    // Find the Whisper words that fall within this segment's time window
     const segOrigWords = origWords.filter(
       w => w.start >= seg.start - 0.15 && w.start < seg.end + 0.15
     );
 
-    // No Whisper words in window → keep segment unchanged (timing already from Whisper)
-    if (segOrigWords.length === 0) {
-      result.push(seg);
-      continue;
-    }
+    if (segOrigWords.length === 0) { result.push(seg); continue; }
 
     const corrWords = seg.text.split(/\s+/).filter(w => w);
     if (corrWords.length === 0) continue;
 
-    // Map each corrected word proportionally to a Whisper word timestamp.
+    // Map each corrected word proportionally onto a Whisper timestamp.
     // Every start/end comes directly from Whisper — nothing is invented.
     const newWords: Word[] = corrWords.map((word, i) => {
       const origIdx = Math.min(
         Math.round(i * segOrigWords.length / corrWords.length),
         segOrigWords.length - 1
       );
-      return {
-        start: segOrigWords[origIdx].start,
-        end:   segOrigWords[origIdx].end,
-        word,
-      };
+      return { start: segOrigWords[origIdx].start, end: segOrigWords[origIdx].end, word };
     });
 
     result.push({
-      start: segOrigWords[0].start,                         // ← ALWAYS from Whisper
-      end:   segOrigWords[segOrigWords.length - 1].end,     // ← ALWAYS from Whisper
+      start: segOrigWords[0].start,                      // ← ALWAYS from Whisper
+      end:   segOrigWords[segOrigWords.length-1].end,    // ← ALWAYS from Whisper
       text:  corrWords.join(" "),
       words: newWords,
     });
@@ -408,7 +388,7 @@ function repairBoundaries(segs: TimedSegment[], origWords: Word[]): TimedSegment
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 3: SPLITTING — All timestamps from Whisper
+// STEP 3: SPLITTING — all timestamps from Whisper
 // ══════════════════════════════════════════════════════════════
 
 function applySplitting(segs: TimedSegment[], style: string, wpg: number): Segment[] {
@@ -425,7 +405,7 @@ function applySplitting(segs: TimedSegment[], style: string, wpg: number): Segme
 }
 
 function mkSeg(words: Word[]): Segment {
-  return { start: words[0].start, end: words[words.length - 1].end, text: words.map(w => w.word).join(" ") };
+  return { start: words[0].start, end: words[words.length-1].end, text: words.map(w => w.word).join(" ") };
 }
 
 function splitSentence(all: Word[]): Segment[] {
@@ -440,7 +420,7 @@ function splitWords(all: Word[], gs: number): Segment[] {
   for (let i = 0; i < all.length; i++) {
     c.push(all[i]);
     if (c.length >= gs) {
-      if (i + 1 < all.length && isBound(all[i], all[i + 1]) && c.length < gs + 2) continue;
+      if (i+1 < all.length && isBound(all[i], all[i+1]) && c.length < gs+2) continue;
       r.push(mkSeg(c)); c = [];
     }
   }
@@ -458,14 +438,14 @@ function splitAuto(all: Word[]): Segment[] {
     ct = ct ? ct + " " + w.word : w.word;
     const dur = c.length > 1 ? w.end - c[0].start : 0;
 
-    if (/[.!?]$/.test(w.word.trim())) { r.push(mkSeg(c)); c = []; ct = ""; continue; }
-    if (/,$/.test(w.word.trim()) && ct.length >= 20) { r.push(mkSeg(c)); c = []; ct = ""; continue; }
+    if (/[.!?]$/.test(w.word.trim()))                          { r.push(mkSeg(c)); c = []; ct = ""; continue; }
+    if (/,$/.test(w.word.trim()) && ct.length >= 20)           { r.push(mkSeg(c)); c = []; ct = ""; continue; }
 
     if (ct.length >= SOFT && c.length >= 2) {
-      const chain = countChain(all, i + 1);
-      if (chain === 0) { r.push(mkSeg(c)); c = []; ct = ""; continue; }
+      const chain = countChain(all, i+1);
+      if (chain === 0)                                         { r.push(mkSeg(c)); c = []; ct = ""; continue; }
       let extra = 0;
-      for (let x = 1; x <= chain && (i + x) < all.length; x++) extra += all[i + x].word.length + 1;
+      for (let x = 1; x <= chain && (i+x) < all.length; x++) extra += all[i+x].word.length + 1;
       if (ct.length + extra <= HARD) continue;
       const lb = countTail(c);
       if (lb > 0 && c.length - lb >= 2) {
@@ -475,7 +455,7 @@ function splitAuto(all: Word[]): Segment[] {
       r.push(mkSeg(c)); c = []; ct = ""; continue;
     }
 
-    if (ct.length >= HARD || dur >= MAXD) { r.push(mkSeg(c)); c = []; ct = ""; continue; }
+    if (ct.length >= HARD || dur >= MAXD)                      { r.push(mkSeg(c)); c = []; ct = ""; continue; }
   }
   if (c.length > 0) r.push(mkSeg(c));
   return r;
@@ -505,7 +485,7 @@ function countChain(w: Word[], si: number): number {
 function countTail(c: Word[]): number {
   if (c.length < 2) return 0;
   let n = 0;
-  for (let i = c.length - 1; i >= 1; i--) {
+  for (let i = c.length-1; i >= 1; i--) {
     const a = c[i].word.trim().replace(/[,.:;!?]+$/g, "");
     if (["הרב","הגאון","מורנו","ורבנו","המקובל","לא","אל","אין","את","של","על","אל","עם","כל","גם","כי","ש","כש"].includes(a)) n++;
     else break;
@@ -520,10 +500,12 @@ function countTail(c: Word[]): number {
 function buildSrt(segs: Segment[], lang: string = "he"): string {
   const rtl = lang === "he" || lang === "ar";
   const RLM = "\u200F";
-  const ts = (s: number) => {
+  const ts  = (s: number) => {
     s = Math.max(0, s);
-    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sc = Math.floor(s % 60),
-      ms = Math.round((s - Math.floor(s)) * 1000);
+    const h  = Math.floor(s / 3600);
+    const m  = Math.floor((s % 3600) / 60);
+    const sc = Math.floor(s % 60);
+    const ms = Math.round((s - Math.floor(s)) * 1000);
     return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(sc).padStart(2,"0")},${String(ms).padStart(3,"0")}`;
   };
   return segs.map((seg, i) => {
@@ -540,38 +522,40 @@ function buildSrt(segs: Segment[], lang: string = "he"): string {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { api_key, action, lang, model, offset, audio_duration, caption_style, words_per_group } = body;
+    const { api_key, action, lang, audio_duration, caption_style, words_per_group } = body;
 
     if (!api_key) return err("Missing api_key", 401);
     const user = await validateApiKey(api_key);
-    if (!user) return err("Invalid API key", 401);
+    if (!user)   return err("Invalid API key", 401);
 
     const remaining = (user.minutes_limit || 0) - (user.minutes_used || 0);
     if (remaining <= 0) return err("נגמרה המכסה. שדרג תוכנית.", 403);
 
+    // ── Get upload URL ──
     if (action === "get_upload_url") {
-      const fileKey = `audio/${user.id}/${Date.now()}.mp3`;
-      const putCmd = new PutObjectCommand({ Bucket: S3_BUCKET, Key: fileKey, ContentType: "audio/mpeg" });
-      const uploadUrl = await getSignedUrl(s3, putCmd, { expiresIn: 300 });
-      const getCmd = new GetObjectCommand({ Bucket: S3_BUCKET, Key: fileKey });
+      const fileKey    = `audio/${user.id}/${Date.now()}.mp3`;
+      const putCmd     = new PutObjectCommand({ Bucket: S3_BUCKET, Key: fileKey, ContentType: "audio/mpeg" });
+      const uploadUrl  = await getSignedUrl(s3, putCmd, { expiresIn: 300 });
+      const getCmd     = new GetObjectCommand({ Bucket: S3_BUCKET, Key: fileKey });
       const downloadUrl = await getSignedUrl(s3, getCmd, { expiresIn: 3600 });
       return NextResponse.json({ upload_url: uploadUrl, download_url: downloadUrl, file_key: fileKey, remaining_minutes: remaining });
     }
 
+    // ── Transcribe ──
     if (action === "transcribe") {
       const { download_url, file_key } = body;
       if (!download_url) return err("Missing download_url");
       const audioDur = audio_duration || 0;
       if (Math.ceil(audioDur / 60 * 10) / 10 > remaining) return err("לא מספיק דקות.", 403);
 
-      // ── STEP 1: Modal Whisper ──
+      // STEP 1: Modal Whisper
       console.log("[MODAL] Sending to Whisper...");
       const t0 = Date.now();
 
       const modalRes = await fetch(MODAL_ENDPOINT, {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audio_url: download_url, lang: lang || "he" }),
+        body:    JSON.stringify({ audio_url: download_url, lang: lang || "he" }),
       });
 
       if (!modalRes.ok) {
@@ -592,16 +576,18 @@ export async function POST(req: NextRequest) {
 
       console.log(`[MODAL] Done in ${whisperMs}ms — ${mr.segments?.length || 0} segs, ${mr.words?.length || 0} words`);
 
-      const rawSegs: Segment[] = (mr.segments || []).map((s: any) => ({ start: s.start, end: s.end, text: (s.text || "").trim() }));
-      const rawWords: Word[] = (mr.words || []).map((w: any) => ({ start: w.start, end: w.end, word: (w.word || "").trim() }));
+      const rawSegs:  Segment[] = (mr.segments || []).map((s: any) => ({ start: s.start, end: s.end, text: (s.text || "").trim() }));
+      const rawWords: Word[]    = (mr.words    || []).map((w: any) => ({ start: w.start, end: w.end, word: (w.word || "").trim() }));
 
       if (rawSegs.length === 0) {
         await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "empty", 0, 0);
         return err("לא נמצא דיבור.", 200);
       }
 
-      // ── STEP 1.5: Filter Whisper hallucinations ──
-      const hePrompt = lang === "he" ? "שלום, זהו תמלול מקצועי בעברית תקנית. סימני פיסוק: נקודה, פסיק, סימן שאלה. שמות אנשים, מקומות ומונחים מקצועיים נכתבים במדויק." : "";
+      // STEP 1.5: Filter Whisper hallucinations
+      const hePrompt = lang === "he"
+        ? "שלום, זהו תמלול מקצועי בעברית תקנית. סימני פיסוק: נקודה, פסיק, סימן שאלה. שמות אנשים, מקומות ומונחים מקצועיים נכתבים במדויק."
+        : "";
       const cleaned = filterHallucinations(rawSegs, rawWords, hePrompt);
 
       if (cleaned.segments.length === 0) {
@@ -609,25 +595,26 @@ export async function POST(req: NextRequest) {
         return err("לא נמצא דיבור.", 200);
       }
 
-      // ── STEP 2: Build timed segments ──
+      // STEP 2: Build timed segments
       const timedSegs = buildTimedSegments(cleaned.segments, cleaned.words);
 
-      // ── STEP 3: Claude AI correction (full context + surgical prompt) ──
+      // STEP 3: Claude AI correction
+      //         temperature=0 + full context + 1:1 word ratio + 1% doubt rule
       const aiResult = await aiCorrect(timedSegs, lang || "he");
 
-      // ── STEP 3.5: Repair boundaries (per-segment Whisper anchoring) ──
+      // STEP 3.5: Repair boundaries — re-anchor every segment to Whisper timestamps
       const repaired = repairBoundaries(aiResult.segments, rawWords);
 
-      // ── STEP 4: Split ──
-      const wpg = parseInt(words_per_group) || 1;
+      // STEP 4: Split into caption groups
+      const wpg   = parseInt(words_per_group) || 1;
       const final = applySplitting(repaired, caption_style || "auto", wpg);
 
-      // ── STEP 5: Build SRT (RTL) ──
+      // STEP 5: Build SRT (RTL)
       const srt = buildSrt(final, lang || "he");
 
-      // ── STEP 6: Log & deduct ──
+      // STEP 6: Log & deduct
       const totalMs = Date.now() - t0;
-      const mins = await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "completed", final.length, totalMs / 1000);
+      const mins    = await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "completed", final.length, totalMs / 1000);
       await deductMinutes(user.id, mins);
 
       if (file_key) s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: file_key })).catch(() => {});
@@ -654,6 +641,7 @@ export async function POST(req: NextRequest) {
     }
 
     return err("Unknown action");
+
   } catch (e: any) {
     console.error("API Error:", e);
     return err("שגיאה פנימית", 500);
