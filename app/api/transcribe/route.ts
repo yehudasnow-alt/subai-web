@@ -1,14 +1,23 @@
 /**
- * SubAI — Transcription Engine v8.0
+ * SubAI — Transcription Engine v9.0
  *
  * ARCHITECTURE:
  * Modal Whisper (sync, ~2s) → Claude AI correction → Smart splitting → RTL SRT
  * No polling, no cold start. Single synchronous request.
  *
  * TIMING:     Every timestamp comes from Whisper. We never invent times.
- * CORRECTION: Claude fixes only phonetic transcription errors — never word choices.
+ * CORRECTION: Claude reads the FULL transcript first, understands topic & context,
+ *             then surgically fixes only phonetic ASR errors — never word choices.
  * TEMP=0:     Deterministic output. No creativity, no guessing, no paraphrasing.
  * VALIDATION: Per-word Levenshtein gate — each word checked individually, not the whole segment.
+ *
+ * v9 UPGRADE:
+ *   • Context-first correction: Claude analyzes the full text to understand topic,
+ *     domain, speaker register, and recurring terms BEFORE touching any segment.
+ *   • No external knowledge injection — all corrections derive from internal
+ *     context analysis (cross-segment coherence, repeated terms, sentence logic).
+ *   • Multi-pass thinking: topic → key terms → suspicious words → corrections.
+ *   • Enhanced per-word validation with phonetic-aware thresholds.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -236,49 +245,82 @@ async function aiCorrect(
       .map((s, i) => `[${i}|${s.start.toFixed(2)}-${s.end.toFixed(2)}] ${s.text}`)
       .join("\n");
 
-    // ── The surgical correction prompt ──
+    // ── Context-first surgical correction prompt (v9) ──
     //
-    // Design decisions:
-    //  • Chain-of-Thought via <thinking> block — Claude identifies the topic and
-    //    suspicious words before touching anything. The Regex parser ignores
-    //    everything outside [index|...] lines, so thinking is free.
+    // Design principles:
+    //  • NO external knowledge injection — corrections come purely from
+    //    understanding the text itself: topic, domain, recurring terms,
+    //    cross-segment coherence, and sentence-level logic.
+    //  • Deep multi-pass <thinking>: topic → domain → key terms map →
+    //    cross-reference consistency → per-word suspicion list.
     //  • temperature=0   — deterministic, no synonyms, no creativity.
     //  • ±1 word allowed — Hebrew prefix split/merge (ש/ל/מ/כ).
-    //  • 1% doubt rule   — default is NO change.
-    //  • Universal Hebrew — covers all registers: legal, medical, slang, tech.
-    const systemPrompt = `אתה מומחה אוניברסלי לתיקון תמלול ולשפה העברית על כל רבדיה (משפטית, רפואית, אקדמית, שפת רחוב וסלנג). קיבלת תמלול שנוצר על ידי מודל שמיעה (Whisper).
-תפקידך הבלעדי הוא לתקן שגיאות זיהוי פונטיות — מילים שוויספר שמע לא נכון — תוך שמירה אבסולוטית על הטקסט המקורי שביטא הדובר.
+    //  • Default is NO change. Only fix what's broken.
+    //  • Universal Hebrew — covers all registers and domains.
+    const systemPrompt = `אתה מתקן תמלול אוטומטי בעברית. קיבלת פלט של מודל זיהוי דיבור (Whisper).
 
-תהליך העבודה שלך (חובה):
-לפני שאתה פולט את הסגמנטים המתוקנים, פתח תגית XML בשם <thinking>.
-בתוך התגית, רשום לעצמך:
-1. מהו נושא השיחה הכללי?
-2. זהה 3-5 מילים שהן בבירור טעויות שמיעה פונטיות — מילים שלא קיימות בעברית, או מילים שנשמעות דומה למשהו הגיוני בהקשר הזה.
-לאחר מכן סגור </thinking> ורק אז פלוט את הסגמנטים בפורמט הנדרש.
+═══ מהות התפקיד ═══
+תפקידך היחיד: לזהות מילים שוויספר שמע בטעות ולתקן אותן — ורק אותן.
+אין לך ידע חיצוני. כל תיקון חייב לנבוע אך ורק מהבנת הטקסט עצמו.
 
-חוקי ברזל (בלתי ניתנים לערעור):
+═══ תהליך עבודה (חובה — בתוך <thinking>) ═══
 
-1. כמות מילים — אסור להוסיף או למחוק מילים, למעט תחיליות עבריות (ש/ל/מ/כ/ב/ו) שהתמזגו או התפצלו בטעות (הפרש של מילה אחת בלבד).
+שלב 1 — קריאה מלאה:
+קרא את כל הטקסט מתחילתו ועד סופו. אל תתקן כלום עדיין.
 
-2. תיקון אותיות בלבד — מותר לתקן: אות שגויה, אות חסרה, אות מיותרת, הומופון.
-   ✓ חינוני→חילוני / הלק→הלך / קרא→קרה / אל גור איתם→אלגוריתם
-   ✗ הלך→צעד / גדול→עצום / אמר→ציין (החלפת מילה — אסור לחלוטין)
+שלב 2 — זיהוי נושא ותחום:
+מהו הנושא המרכזי? (שיעור תורה, הרצאה אקדמית, שיחה יומיומית, ראיון, פודקאסט וכו')
+מהו התחום המקצועי? (הלכה, רפואה, טכנולוגיה, כלכלה, חינוך, שיחת חולין וכו')
+מהו רישום השפה של הדובר? (גבוה/תקני, יומיומי, סלנג, מעורב)
 
-3. שמירה על שפת הדובר — אל תתקן שגיאות דקדוק של הדובר עצמו.
-   "שלוש שקל", "אני יגיד", "הוא אמרה" — השאר כצאתם.
+שלב 3 — מיפוי מונחי מפתח:
+זהה מילים ומונחים שחוזרים לאורך הטקסט. אם מילה מופיעה 3 פעמים נכון ופעם אחת בצורה שונה — הצורה השונה היא כנראה שגיאת שמיעה.
+רשום את המונחים המרכזיים של השיחה.
 
-4. מילות מילוי — כאילו, אממ, אה, נו, כזה, טוב, אז — חובה להשאיר כצאתן. הן עוגני תזמון.
+שלב 4 — סריקת חשודים:
+עבור סגמנט-סגמנט. לכל מילה שאל:
+  א. האם המילה הזאת קיימת בעברית?
+  ב. האם היא הגיונית בהקשר המשפט?
+  ג. האם יש מילה שנשמעת דומה ומתאימה יותר לנושא השיחה?
+  ד. האם המילה הזאת מופיעה במקומות אחרים בטקסט בצורה שונה?
+אם התשובות ל-א ו-ב הן "כן" — אל תשנה.
 
-5. כלל הספק — אם המשפט הגיוני גם ללא תיקון, או שיש ספק כלשהו: אל תשנה. ברירת המחדל היא אי-שינוי.
+שלב 5 — אימות צולב:
+לפני כל תיקון, בדוק: האם התיקון עקבי עם שאר הטקסט? האם המילה המתוקנת הגיונית בהקשר הסגמנטים שלפני ואחרי?
 
-פורמט פלט: [index|start-end] text — שורה אחת לכל סגמנט, כל הסגמנטים, ללא הקדמות מחוץ ל-thinking.`;
+סגור </thinking> ופלוט את התוצאה.
 
-    const userMessage = `תמלול מלא להבנת ההקשר — קרא לפני הכל:
+═══ חוקי ברזל — אין חריגות ═══
+
+1. הצמדה למקור: אתה עורך, לא כותב. כל מילה שהדובר אמר חייבת להישאר — גם אם היא לא מושלמת דקדוקית. תפקידך רק לתקן מה שוויספר שיבש, לא מה שהדובר "התכוון".
+
+2. כמות מילים: אסור להוסיף או למחוק מילים. החריגה היחידה: תחיליות עבריות (ש/ל/מ/כ/ב/ו/ה) שהתמזגו או התפצלו בטעות — הפרש של מילה אחת בלבד מותר.
+
+3. תיקון אותיות בלבד: מותר לשנות אות שגויה, אות חסרה, אות מיותרת, או הומופון.
+   ✓ חינוני→חילוני | הלק→הלך | קרא→קרה | כאלה→כאילו | אל גור איתם→אלגוריתם
+   ✗ הלך→צעד | גדול→עצום | אמר→ציין | ראה→הבחין (החלפת מילה שלמה — אסור)
+   ✗ ביקש→רצה | שמח→מאושר | הרבה→המון (מילים נרדפות — אסור)
+
+4. שמירת דקדוק הדובר: "שלוש שקל", "אני יגיד", "הוא אמרה" — השאר כמות שהוא. אלה לא שגיאות שמיעה.
+
+5. מילות מילוי: כאילו, אממ, אה, נו, כזה, טוב, אז, יאללה, בקיצור — חובה להשאיר. הן עוגני תזמון.
+
+6. כלל ברירת המחדל: אם המשפט מובן וקריא כמות שהוא — אל תשנה כלום. ברירת המחדל תמיד היא אי-שינוי.
+
+7. עקביות פנימית: אם תיקנת מילה בסגמנט 5, ואותה מילה מופיעה בסגמנט 12 באותה צורה — תקן גם שם. עקביות לאורך כל הטקסט.
+
+8. פיסוק: מותר להוסיף או לתקן סימני פיסוק (נקודה, פסיק, סימן שאלה, סימן קריאה) מבלי לשנות אף מילה.
+
+═══ פורמט פלט ═══
+[index|start-end] text
+שורה אחת לכל סגמנט. כל הסגמנטים. ללא שום טקסט מחוץ ל-<thinking> ולשורות הסגמנטים.`;
+
+    const userMessage = `הנה התמלול המלא — קרא הכל לפני שאתה מתחיל:
 ===
 ${fullContext}
 ===
 
-סגמנטים לתיקון:
+סגמנטים לתיקון (שמור על הפורמט בדיוק):
 
 ${segmentsForCorrection}`;
 
@@ -629,7 +671,7 @@ export async function POST(req: NextRequest) {
       const timedSegs = buildTimedSegments(cleaned.segments, cleaned.words);
 
       // STEP 3: Claude AI correction
-      // temp=0 · full context · <thinking> CoT · per-word validation
+      // temp=0 · context-first analysis · <thinking> CoT · per-word validation
       const aiResult = await aiCorrect(timedSegs, lang || "he");
 
       // STEP 3.5: Re-anchor every segment boundary to Whisper timestamps
