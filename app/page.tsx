@@ -85,13 +85,13 @@ export default function Home() {
 
       {/* ── Pricing ── */}
       <section id="pricing" className="section">
-        <h2 className="sec-title">מחירים</h2>
-        <p className="sec-sub">התחל בחינם. שדרג כשתרצה. בטל מתי שרוצים.</p>
+        <h2 className="sec-title">חבילות דקות</h2>
+        <p className="sec-sub">קנה דקות. השתמש בקצב שלך. נגמר? קנה עוד.</p>
         <div className="price-grid">
           <div className="price-card glass-card">
             <div className="price-name">חינמי</div>
             <div className="price-amount">₪0</div>
-            <div className="price-period">לנצח</div>
+            <div className="price-period">10 דקות לנסיון</div>
             <ul className="price-features">
               <li>10 דקות תמלול</li>
               <li>תמלול בעברית</li>
@@ -103,27 +103,27 @@ export default function Home() {
           <div className="price-card glass-card popular">
             <div className="popular-tag">הכי פופולרי</div>
             <div className="price-name">פרו</div>
-            <div className="price-amount">₪59<span>/חודש</span></div>
-            <div className="price-period">120 דקות לחודש</div>
+            <div className="price-amount">₪59</div>
+            <div className="price-period">120 דקות</div>
             <ul className="price-features">
               <li>120 דקות תמלול</li>
               <li>תיקון AI מתקדם</li>
               <li>מצב TikTok</li>
               <li>ייצוא ישר לתוכנה</li>
             </ul>
-            <Link href="/api/checkout?plan=pro" className="price-btn primary">שדרג לפרו ←</Link>
+            <Link href="/api/checkout?plan=pro" className="price-btn primary">קנה חבילת פרו ←</Link>
           </div>
           <div className="price-card glass-card">
             <div className="price-name">סטודיו</div>
-            <div className="price-amount">₪180<span>/חודש</span></div>
-            <div className="price-period">500 דקות לחודש</div>
+            <div className="price-amount">₪180</div>
+            <div className="price-period">500 דקות</div>
             <ul className="price-features">
               <li>500 דקות תמלול</li>
               <li>תיקון AI מתקדם</li>
               <li>מצב TikTok</li>
               <li>ייצוא ישר לתוכנה</li>
             </ul>
-            <Link href="/api/checkout?plan=studio" className="price-btn">שדרג לסטודיו</Link>
+            <Link href="/api/checkout?plan=studio" className="price-btn">קנה חבילת סטודיו</Link>
           </div>
         </div>
       </section>
