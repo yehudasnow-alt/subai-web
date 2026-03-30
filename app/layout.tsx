@@ -1,9 +1,8 @@
 import "./globals.css";
 import type { Metadata } from "next";
-
 export const metadata: Metadata = {
   title: "SubAI — כתוביות AI בעברית לפרמייר פרו",
-  description: "תמלול אוטומטי מדויק בעברית, ערבית ואנגלית ישירות בתוך Adobe Premiere Pro. מופעל על ידי Whisper AI + Claude.",
+  description: "תמלול אוטומטי מדויק בעברית ישירות בתוך Adobe Premiere Pro. מופעל על ידי Whisper AI + Claude.",
   keywords: "כתוביות, תמלול, עברית, Premiere Pro, AI, Whisper, פלאגין, subtitle, transcription",
   openGraph: {
     title: "SubAI — כתוביות AI לפרמייר פרו",
@@ -11,8 +10,10 @@ export const metadata: Metadata = {
     type: "website",
     siteName: "SubAI",
   },
+  verification: {
+    google: "dMYnWMJ-VgyzEywKALSAZhDxlf0m_5u1Sq8j5UoIoBU",
+  },
 };
-
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="he" dir="rtl">
