@@ -1,7 +1,7 @@
 /**
- * SubAI — Transcription Engine v9.2
+ * SubAI — Transcription Engine v9.3
  *
- * v9.2: Haiku 4.5 + Prompt Caching (67% cheaper + 90% cache savings on system prompt)
+ * v9.3: Haiku 4.5 — no thinking (saves output tokens) + native prompt caching
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -175,39 +175,31 @@ function validateCorrection(orig: string, corr: string, isGarbage: boolean): { o
   return { ok: true, reason: "" };
 }
 
-// ── System prompt — CACHED (ephemeral = 5 min TTL) ──
-// First request: cache write (1.25x input price)
-// Next requests within 5 min: cache read (0.1x input price = 90% savings)
+// ── System prompt — CACHED (no <thinking>, direct output) ──
 const SYSTEM_PROMPT = `אתה מתקן תמלול אוטומטי בעברית. קיבלת פלט של מודל זיהוי דיבור (Whisper).
 
-═══ מהות התפקיד ═══
 תפקידך היחיד: לזהות מילים שוויספר שמע בטעות ולתקן אותן — ורק אותן.
-אין לך ידע חיצוני. כל תיקון חייב לנבוע אך ורק מהבנת הטקסט עצמו.
 
-═══ תהליך עבודה (חובה — בתוך <thinking>) ═══
+תהליך עבודה:
+1. קרא את כל הטקסט. זהה נושא, תחום, ומונחים חוזרים.
+2. סרוק מילה-מילה. תקן רק מילים שוויספר שיבש (שמיעה שגויה).
+3. ודא עקביות לאורך כל הטקסט.
 
-שלב 1 — קריאה מלאה: קרא את כל הטקסט. אל תתקן כלום עדיין.
-שלב 2 — זיהוי נושא ותחום: מהו הנושא? מהו התחום? מהו רישום השפה?
-שלב 3 — מיפוי מונחי מפתח: זהה מילים שחוזרות. צורה שונה = שגיאת שמיעה.
-שלב 4 — סריקת חשודים: לכל מילה — קיימת בעברית? הגיונית בהקשר? יש דומה יותר?
-שלב 5 — אימות צולב: התיקון עקבי עם שאר הטקסט?
+פלוט ישירות את התוצאה. ללא הסברים, ללא thinking, ללא הערות.
 
-סגור </thinking> ופלוט את התוצאה.
-
-═══ חוקי ברזל ═══
-
+חוקי ברזל:
 1. הצמדה למקור: אתה עורך, לא כותב. תקן רק מה שוויספר שיבש.
 2. כמות מילים: אסור להוסיף/למחוק. חריגה: תחיליות (ש/ל/מ/כ/ב/ו/ה) — ±1 מילה.
-3. תיקון אותיות בלבד: ✓ חינוני→חילוני | הלק→הלך ✗ הלך→צעד | ביקש→רצה (אסור)
+3. תיקון אותיות בלבד: ✓ חינוני→חילוני | הלק→הלך | כאלה→כאילו | שליטה→שליט"א | חוויות→חביות ✗ הלך→צעד | ביקש→רצה | גדול→עצום (החלפת מילה שלמה — אסור)
 4. שמירת דקדוק הדובר: "שלוש שקל", "אני יגיד" — השאר כמו שהוא.
 5. מילות מילוי: כאילו, אממ, אה, נו — חובה להשאיר.
 6. ברירת מחדל: אם מובן וקריא — אל תשנה כלום.
 7. עקביות: תיקנת בסגמנט 5? תקן גם ב-12.
 8. פיסוק: מותר להוסיף/לתקן סימני פיסוק בלי לשנות מילים.
 
-═══ פורמט פלט ═══
+פורמט פלט — חובה בדיוק:
 [index|start-end] text
-שורה אחת לכל סגמנט. כל הסגמנטים. ללא טקסט מחוץ ל-<thinking> ולשורות הסגמנטים.`;
+שורה אחת לכל סגמנט. כל הסגמנטים. שום דבר אחר.`;
 
 async function aiCorrect(timedSegs: TimedSegment[], language: string): Promise<{ segments: TimedSegment[]; method: string }> {
   if (!ANTHROPIC_API_KEY || timedSegs.length === 0) return { segments: timedSegs, method: "none" };
@@ -216,13 +208,10 @@ async function aiCorrect(timedSegs: TimedSegment[], language: string): Promise<{
     const fullContext = timedSegs.map(s => s.text.trim()).join(" ");
     const segmentsForCorrection = timedSegs.map((s, i) => `[${i}|${s.start.toFixed(2)}-${s.end.toFixed(2)}] ${s.text}`).join("\n");
 
-    const userMessage = `הנה התמלול המלא — קרא הכל לפני שאתה מתחיל:
-===
+    const userMessage = `התמלול המלא:
 ${fullContext}
-===
 
-סגמנטים לתיקון (שמור על הפורמט בדיוק):
-
+סגמנטים לתיקון:
 ${segmentsForCorrection}`;
 
     const controller = new AbortController();
@@ -233,12 +222,11 @@ ${segmentsForCorrection}`;
       headers: {
         "Content-Type": "application/json",
         "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "prompt-caching-2024-07-31",
+        "anthropic-version": "2025-01-01",
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 8192,
+        max_tokens: 4096,
         temperature: 0,
         system: [{
           type: "text",
