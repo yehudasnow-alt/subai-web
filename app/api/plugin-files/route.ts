@@ -3,7 +3,7 @@
  * GET /api/plugin-files?file=index.html
  * GET /api/plugin-files?file=host.jsx
  * 
- * Serves the latest plugin files directly.
+ * Serves the latest plugin files from public/plugin-update/.
  * The plugin downloads these to overwrite its own files.
  */
 
@@ -23,7 +23,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid file" }, { status: 400 });
   }
 
-  // Files are stored in public/plugin-update/
   const filePath = join(process.cwd(), "public", "plugin-update", file);
   
   if (!existsSync(filePath)) {
