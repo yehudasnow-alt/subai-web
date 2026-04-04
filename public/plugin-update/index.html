@@ -273,15 +273,15 @@ function loadSeq(retries=8){clearTimeout(_seqTimer);ftr('טוען רצף...');
     if(!info.ok){ftr('פתח רצף');if(retries>0)_seqTimer=setTimeout(()=>loadSeq(retries-1),3000);return;}
     SEQ=info;updateSeqUI();loadAudioTracks();updateRunButton();ftr('מוכן');});}
 function updateSeqUI(){if(!SEQ)return;
-  $('ioStatus').innerHTML=SEQ.hasWA?`<div class="badge g" style="margin-bottom:8px">✓ In/Out: ${fd(SEQ.i)} → ${fd(SEQ.o)} (${fd(SEQ.o-SEQ.i)})</div>`
-    :`<div class="badge warn" style="margin-bottom:8px">⚠️ סמן In/Out בטיימליין</div>`;updateRunButton();}
+  $('ioStatus').innerHTML=SEQ.hasWA?`<div class="badge g" style="margin-bottom:8px;cursor:pointer" onclick="loadSeq()">✓ In/Out: ${fd(SEQ.i)} → ${fd(SEQ.o)} (${fd(SEQ.o-SEQ.i)}) 🔄</div>`
+    :`<div class="badge warn" style="margin-bottom:8px;cursor:pointer" onclick="loadSeq()">⚠️ סמן In/Out בטיימליין (לחץ לרענון 🔄)</div>`;updateRunButton();}
 function updateRunButton(){const ok=SEQ&&SEQ.hasWA;$('btnRun').disabled=!ok||RUNNING;
   $('btnRun').textContent=!ok&&SEQ?'⚠️ סמן In/Out קודם':'✨ תמלל עם AI';$('btnRun').style.opacity=!ok&&SEQ?'0.4':'';}
 
 let _ioTimer=null;
 function startInOutRefresh(){clearInterval(_ioTimer);_ioTimer=setInterval(()=>{if(RUNNING||!SEQ)return;
   evalScript('getInOut()',raw=>{try{const d=JSON.parse(raw);if(!d.ok)return;
-    if(d.i!==SEQ.i||d.o!==SEQ.o||d.hasWA!==SEQ.hasWA){SEQ.i=d.i;SEQ.o=d.o;SEQ.hasWA=d.hasWA;SEQ.dur=d.dur;updateSeqUI();}}catch(e){}});},2000);}
+    if(Math.abs(d.i-SEQ.i)>0.01||Math.abs(d.o-SEQ.o)>0.01||d.hasWA!==SEQ.hasWA){SEQ.i=d.i;SEQ.o=d.o;SEQ.hasWA=d.hasWA;SEQ.dur=d.dur;updateSeqUI();}}catch(e){}});},500);}
 
 function loadAudioTracks(){evalScript('getAudioTracks()',raw=>{try{const d=JSON.parse(raw);if(!d.ok||!d.tracks)return;
   const sel=$('selTrack');sel.innerHTML='<option value="all">כל הרצועות</option>';
