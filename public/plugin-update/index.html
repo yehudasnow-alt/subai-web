@@ -1,196 +1,417 @@
-/**
- * SubAI — Premiere Pro ExtendScript (host.jsx) v4.0
- * Called from index.html via evalScript()
- */
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>SubAI</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --glass:rgba(255,255,255,0.08);--glass2:rgba(255,255,255,0.14);--glass3:rgba(255,255,255,0.2);
+  --glassBd:rgba(255,255,255,0.16);--glassBd2:rgba(255,255,255,0.24);
+  --bg0:#0a0a12;
+  --t0:#ffffff;--t1:#c8c8e0;--t2:#8888aa;
+  --accent:#3b82f6;--accent2:#818cf8;--accentG:rgba(99,102,241,0.2);
+  --grn:#34d399;--grnG:rgba(52,211,153,0.15);
+  --org:#fbbf24;--orgG:rgba(251,191,36,0.15);
+  --red:#f87171;--redG:rgba(248,113,113,0.12);
+  --r:16px;--rs:10px;
+  --font:'Segoe UI','Arial Hebrew',system-ui,sans-serif;
+  --blur:saturate(180%) blur(20px);
+}
+html,body{width:100%;height:100%;background:var(--bg0);color:var(--t0);
+  font-family:var(--font);font-size:13px;line-height:1.6;direction:rtl;overflow:hidden;
+  background-image:radial-gradient(ellipse at 20% 50%,rgba(99,102,241,0.08) 0%,transparent 50%),
+    radial-gradient(ellipse at 80% 80%,rgba(52,211,153,0.05) 0%,transparent 50%)}
+body{display:flex;flex-direction:column}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px}
 
-// ── Get active sequence info ──
-function getSeq() {
-  try {
-    var seq = app.project.activeSequence;
-    if (!seq) return JSON.stringify({ok:false,e:"No active sequence"});
-    var fps = seq.getSettings().videoFrameRate.ticks;
-    var ticksPerSec = 254016000000;
-    var fpsNum = ticksPerSec / fps;
-    var dur = seq.end / ticksPerSec;
-    var io = seq.getInPoint();
-    var oo = seq.getOutPoint();
-    var inSec = io / ticksPerSec;
-    var outSec = oo / ticksPerSec;
-    var hasWA = (outSec - inSec) > 0.3 && outSec < dur + 1;
-    if (!hasWA) { inSec = 0; outSec = dur; hasWA = dur > 0.5; }
-    return JSON.stringify({ok:true,name:seq.name,dur:dur,i:inSec,o:outSec,hasWA:hasWA,fps:fpsNum});
-  } catch(e) { return JSON.stringify({ok:false,e:e.toString()}); }
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;
+  background:var(--glass);backdrop-filter:var(--blur);border-bottom:1px solid var(--glassBd);flex-shrink:0}
+.logo-box{display:flex;align-items:center;gap:10px}
+.logo-sq{width:30px;height:30px;border-radius:10px;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#fff}
+.logo-t{font-size:16px;font-weight:700}.logo-t span{color:var(--accent2)}
+.pill{font-size:10px;padding:3px 10px;border-radius:20px;font-weight:600;background:var(--glass2);border:1px solid var(--glassBd)}
+
+.screen{position:absolute;inset:0;overflow-y:auto;padding:14px;
+  display:flex;flex-direction:column;gap:12px;visibility:hidden;opacity:0;transition:opacity .2s}
+.screen.on{visibility:visible;opacity:1}
+#screens{flex:1;overflow:hidden;position:relative}
+
+.card{background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  border:1px solid var(--glassBd);border-radius:var(--r);padding:16px}
+.card-t{font-size:12px;font-weight:700;color:var(--t1);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+
+.welcome{text-align:center;padding:30px 10px 20px}
+.welcome-icon{font-size:48px;margin-bottom:12px;filter:drop-shadow(0 0 20px rgba(99,102,241,0.4))}
+.welcome h2{font-size:20px;font-weight:800;margin-bottom:6px;background:linear-gradient(135deg,#f0f0f8,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.welcome p{font-size:12px;color:var(--t1);line-height:1.8}
+
+.btn-google{width:100%;padding:14px;border-radius:var(--rs);font-size:14px;font-weight:600;
+  font-family:var(--font);cursor:pointer;border:1px solid var(--glassBd2);
+  background:rgba(255,255,255,0.95);color:#333;display:flex;align-items:center;justify-content:center;gap:10px;
+  transition:all .2s;box-shadow:0 4px 16px rgba(0,0,0,0.2)}
+.btn-google:hover{transform:translateY(-1px);box-shadow:0 6px 24px rgba(0,0,0,0.3)}
+.btn-google:disabled{opacity:.4;transform:none}
+
+.msg{font-size:12px;margin-top:10px;text-align:center;min-height:16px;padding:8px;border-radius:var(--rs)}
+.msg.ok{background:var(--grnG);color:var(--grn)}.msg.bad{background:var(--redG);color:var(--red)}.msg.busy{background:var(--accentG);color:var(--accent2)}
+
+.badge{display:inline-block;padding:4px 14px;border-radius:20px;font-size:11px;font-weight:600;background:var(--glass2);border:1px solid var(--glassBd)}
+.badge.g{background:var(--grnG);border-color:rgba(52,211,153,0.3);color:var(--grn)}
+.badge.warn{background:var(--orgG);border-color:rgba(251,191,36,0.3);color:var(--org)}
+
+.opt-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.opt-label{font-size:13px;color:var(--t0);font-weight:500}
+
+select{background:#1e1e2e;border:1px solid var(--glassBd2);border-radius:8px;
+  color:#ffffff;font-family:var(--font);font-size:13px;padding:8px 12px;outline:none;
+  font-weight:600;-webkit-appearance:none;appearance:none;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:left 10px center;padding-left:28px}
+select:focus{border-color:var(--accent2);box-shadow:0 0 0 2px rgba(99,102,241,0.15)}
+select option{background:#1a1a2e;color:#ffffff;padding:8px;font-weight:500}
+
+.btn-run{width:100%;padding:16px;border-radius:var(--r);font-size:16px;font-weight:800;
+  font-family:var(--font);cursor:pointer;border:none;color:#fff;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  box-shadow:0 4px 24px var(--accentG);transition:all .25s}
+.btn-run:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 32px var(--accentG)}
+.btn-run:disabled{opacity:.3;cursor:not-allowed;transform:none}
+
+#progBox{display:none}
+.prog-track{height:4px;background:var(--glass);border-radius:2px;overflow:hidden;margin-bottom:12px}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2),var(--grn));border-radius:2px;
+  width:0%;transition:width .4s;background-size:200% 100%;animation:shimmer 2s infinite linear}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.prog-msg{font-size:14px;font-weight:600;text-align:center}
+.prog-sub{font-size:11px;color:var(--t2);text-align:center;margin-top:4px}
+
+#resBox{display:none}.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.chip{border-radius:20px;padding:4px 12px;font-size:11px;font-weight:600;background:var(--glass2);border:1px solid var(--glassBd);color:var(--t1)}
+.chip.g{border-color:rgba(52,211,153,0.3);color:var(--grn);background:var(--grnG)}
+.chip.b{border-color:rgba(99,102,241,0.3);color:var(--accent2);background:var(--accentG)}
+
+#errBox{display:none;background:var(--redG);border:1px solid rgba(248,113,113,0.3);border-radius:var(--r);padding:16px;text-align:center}
+.err-msg{font-size:12px;color:var(--t1);line-height:1.7;margin-bottom:8px}
+.btn-mini{background:var(--glass2);border:1px solid var(--glassBd);color:var(--t1);cursor:pointer;
+  font-family:var(--font);font-size:11px;border-radius:8px;padding:5px 12px}
+
+.plan-box{background:linear-gradient(135deg,rgba(99,102,241,0.1),rgba(52,211,153,0.05));
+  border:1px solid rgba(99,102,241,0.2);border-radius:var(--r);padding:16px;text-align:center}
+.plan-name{font-size:18px;font-weight:800;background:linear-gradient(135deg,#f0f0f8,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.usage-bar{height:6px;background:var(--glass);border-radius:3px;overflow:hidden;margin:10px 0 6px}
+.usage-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--grn));border-radius:3px;transition:width .5s}
+.usage-text{display:flex;justify-content:space-between;font-size:11px;color:var(--t2)}
+
+.btn-action{width:100%;padding:12px;border-radius:var(--rs);font-size:13px;font-weight:600;
+  font-family:var(--font);cursor:pointer;transition:all .2s;border:1px solid var(--glassBd);
+  background:var(--glass2);color:var(--t0);text-align:center;display:block}
+.btn-action:hover{background:var(--glass3)}
+.btn-buy{width:100%;padding:12px;border-radius:var(--rs);font-size:14px;font-weight:700;
+  font-family:var(--font);cursor:pointer;transition:all .2s;border:none;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;text-align:center;display:block;margin-bottom:6px}
+.btn-buy:hover{transform:translateY(-1px);box-shadow:0 4px 16px var(--accentG)}
+.btn-logout{width:100%;padding:10px;background:none;border:1px solid rgba(248,113,113,0.3);color:var(--red);
+  border-radius:var(--rs);font-family:var(--font);font-size:12px;cursor:pointer;margin-top:8px}
+
+.tabs{display:flex;background:var(--glass);backdrop-filter:var(--blur);border-bottom:1px solid var(--glassBd);flex-shrink:0}
+.tab{flex:1;padding:10px 4px;text-align:center;font-size:12px;color:var(--t2);cursor:pointer;
+  border:none;border-bottom:2px solid transparent;background:none;font-family:var(--font);transition:all .15s}
+.tab:hover{color:var(--t1);background:var(--glass)}
+.tab.on{color:var(--accent2);border-bottom-color:var(--accent2)}
+
+.ftr{display:flex;align-items:center;justify-content:space-between;padding:6px 16px;
+  background:var(--glass);border-top:1px solid var(--glassBd);font-size:10px;color:var(--t2);flex-shrink:0}
+
+.update-bar{padding:10px 14px;background:linear-gradient(135deg,rgba(99,102,241,0.15),rgba(52,211,153,0.1));
+  border-bottom:1px solid rgba(99,102,241,0.3);font-size:12px;font-weight:600;color:var(--accent2);
+  text-align:center;cursor:pointer;flex-shrink:0;display:none}
+.update-bar:hover{background:linear-gradient(135deg,rgba(99,102,241,0.25),rgba(52,211,153,0.15))}
+
+.user-bar{font-size:11px;color:var(--t1);padding:6px 14px;background:var(--glass);border-bottom:1px solid var(--glassBd);
+  display:flex;align-items:center;justify-content:space-between;flex-shrink:0;display:none}
+</style>
+</head>
+<body>
+
+<div class="update-bar" id="updateBar" onclick="doUpdate()">🔄 גרסה חדשה זמינה — לחץ לעדכון</div>
+
+<div class="hdr">
+  <div class="logo-box"><div class="logo-sq">S</div><div class="logo-t">Sub<span>AI</span></div></div>
+  <div class="pill" id="pill">...</div>
+</div>
+
+<div class="user-bar" id="userBar"><span id="userEmail">-</span><span id="quotaMini">-</span></div>
+
+<div class="tabs" id="tabBar" style="display:none">
+  <button class="tab on" data-s="main">🎙 תמלול</button>
+  <button class="tab" data-s="account">👤 חשבון</button>
+</div>
+
+<div id="screens">
+  <!-- ONBOARDING -->
+  <div class="screen on" id="s-onboard">
+    <div class="welcome">
+      <div class="welcome-icon">✨</div>
+      <h2>SubAI — כתוביות AI</h2>
+      <p>כתוביות מדויקות בעברית ישירות בתוך Premiere Pro.<br>התחבר עם Google כדי להתחיל.</p>
+    </div>
+    <div class="card" style="text-align:center">
+      <button class="btn-google" id="btnGoogle">
+        <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+        התחבר עם Google
+      </button>
+      <div class="msg" id="loginMsg"></div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="screen" id="s-main">
+    <div class="card" id="ioCard">
+      <div class="card-t">🎯 הגדרות תמלול</div>
+      <div id="ioStatus"></div>
+      <div class="opt-row"><span class="opt-label">שפה</span>
+        <select id="selLang"><option value="he" selected>עברית 🇮🇱</option><option value="en">אנגלית 🇺🇸</option><option value="ar">ערבית 🇸🇦</option><option value="auto">אוטומטי 🌍</option></select>
+      </div>
+      <div class="opt-row"><span class="opt-label">רצועת אודיו</span>
+        <select id="selTrack"><option value="all" selected>כל הרצועות</option></select>
+      </div>
+      <div class="opt-row" style="margin:0"><span class="opt-label">סגנון כתוביות</span>
+        <select id="selStyle">
+          <option value="auto" selected>אוטומטי (משפטים)</option>
+          <option value="sentence">משפט שלם</option>
+          <option value="word1">מילה אחת (TikTok)</option>
+          <option value="word2">2 מילים</option>
+          <option value="word3">3 מילים</option>
+          <option value="word4">4 מילים</option>
+          <option value="word5">5 מילים</option>
+          <option value="word6">6 מילים</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn-run" id="btnRun" disabled>✨ תמלל עם AI</button>
+    <div class="card" id="progBox">
+      <div class="prog-track"><div class="prog-fill" id="pFill"></div></div>
+      <div class="prog-msg" id="pMsg">מתחיל...</div>
+      <div class="prog-sub" id="pSub"></div>
+    </div>
+    <div class="card" id="resBox"><div class="chips" id="rChips"></div><div style="color:var(--grn);text-align:center;font-size:14px">✅ הכתוביות מוכנות!</div></div>
+    <div id="errBox"><div style="font-size:22px;margin-bottom:6px">⚠️</div><div class="err-msg" id="errMsg"></div><button class="btn-mini" id="btnErrClose">סגור</button></div>
+  </div>
+
+  <!-- ACCOUNT -->
+  <div class="screen" id="s-account">
+    <div class="plan-box"><div class="plan-name" id="acPlan">-</div><div style="font-size:11px;color:var(--t2);margin-top:2px" id="acPlanSub"></div></div>
+    <div class="card">
+      <div class="card-t">📊 שימוש</div>
+      <div class="usage-bar"><div class="usage-fill" id="usageFill" style="width:0%"></div></div>
+      <div class="usage-text"><span id="usageLeft">-</span><span id="usageTotal">-</span></div>
+    </div>
+    <button class="btn-buy" id="btnBuy" onclick="buyMinutes()">🛒 קנה עוד דקות</button>
+    <button class="btn-action" id="btnManage" onclick="openManage()">🌐 נהל חשבון</button>
+    <button class="btn-logout" id="btnLogout">🚪 התנתק</button>
+  </div>
+</div>
+
+<div class="ftr"><span>SubAI v4.0</span><span id="ftrSt" style="color:var(--t2)">...</span></div>
+
+<script>
+const FS=require('fs'),PATH=require('path'),OS=require('os'),{spawn,exec}=require('child_process');
+const https=require('https'),http=require('http');
+const API_BASE='https://subai-web.vercel.app';
+const PLUGIN_VERSION='4.0.0';
+const EXPORT_TIMEOUT=120000;
+const $=id=>document.getElementById(id);
+const e2=s=>s.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+const san=s=>s.replace(/[<>:"\/\\|?*\s]/g,'_').substring(0,50);
+const fd=s=>{if(!s||isNaN(s))return '0:00';const m=Math.floor(s/60),sc=Math.floor(s%60);return m+':'+String(sc).padStart(2,'0');};
+function ftr(m){$('ftrSt').textContent=m;}
+function setPill(t){$('pill').textContent=t;}
+function evalScript(s,cb){const b=window.__adobe_cep__||window.cep;if(b&&typeof b.evalScript==='function'){try{b.evalScript(s,cb||(()=>{}));return;}catch(e){}}if(typeof window.evalScript==='function'){try{window.evalScript(s,cb||(()=>{}));return;}catch(e){}}if(cb)cb(JSON.stringify({ok:false,e:'CEP not found'}));}
+function waitBridge(ms,cb){const t0=Date.now();const check=()=>{const b=window.__adobe_cep__||window.cep;if(b){cb(true);return;}evalScript('1',r=>{if(r==='1'||r===1){cb(true);return;}if(Date.now()-t0<ms)setTimeout(check,350);else cb(false);});};check();}
+function saveAuth(d){try{localStorage.setItem('subai_auth',JSON.stringify(d));}catch(e){}}
+function loadAuth(){try{return JSON.parse(localStorage.getItem('subai_auth')||'null');}catch(e){return null;}}
+function clearAuth(){try{localStorage.removeItem('subai_auth');}catch(e){}}
+
+function apiPost(ep,body){return new Promise((resolve,reject)=>{const data=JSON.stringify(body);const url=new(require('url').URL)(API_BASE+ep);const mod=url.protocol==='https:'?https:http;const req=mod.request({hostname:url.hostname,port:url.port||443,path:url.pathname,method:'POST',headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(data)},timeout:300000},res=>{let buf='';res.on('data',d=>buf+=d);res.on('end',()=>{try{resolve(JSON.parse(buf));}catch(e){reject(new Error('Invalid response'));}});});req.on('error',e=>reject(e));req.on('timeout',()=>{req.destroy();reject(new Error('Timeout'));});req.write(data);req.end();});}
+function apiGet(ep){return new Promise((resolve,reject)=>{const url=new(require('url').URL)(API_BASE+ep);const mod=url.protocol==='https:'?https:http;const req=mod.request({hostname:url.hostname,port:url.port||443,path:url.pathname,method:'GET',timeout:10000},res=>{let buf='';res.on('data',d=>buf+=d);res.on('end',()=>{try{resolve(JSON.parse(buf));}catch(e){resolve({});}});});req.on('error',e=>reject(e));req.on('timeout',()=>{req.destroy();reject(new Error('Timeout'));});req.end();});}
+function uploadToS3(signedUrl,filePath){return new Promise((resolve,reject)=>{const fileData=FS.readFileSync(filePath);const url=new(require('url').URL)(signedUrl);const mod=url.protocol==='https:'?https:http;const req=mod.request({hostname:url.hostname,port:url.port||(url.protocol==='https:'?443:80),path:url.pathname+url.search,method:'PUT',headers:{'Content-Type':'audio/mpeg','Content-Length':fileData.length},timeout:120000},res=>{let buf='';res.on('data',d=>buf+=d);res.on('end',()=>{if(res.statusCode>=200&&res.statusCode<300)resolve();else reject(new Error('S3: '+res.statusCode));});});req.on('error',e=>reject(e));req.on('timeout',()=>{req.destroy();reject(new Error('Upload timeout'));});req.write(fileData);req.end();});}
+
+// ── Tabs ──
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));document.querySelectorAll('.screen').forEach(x=>x.classList.remove('on'));t.classList.add('on');$('s-'+t.dataset.s).classList.add('on');if(t.dataset.s==='account')refreshAccount();}));
+function showScreen(id){document.querySelectorAll('.screen').forEach(x=>x.classList.remove('on'));$(id).classList.add('on');}
+
+let SEQ=null,USER=null,RUNNING=false,API_KEY=null;
+
+// ── Google Login ──
+let _pollTimer=null;
+$('btnGoogle').onclick=()=>{
+  const sid='ps_'+Date.now()+'_'+Math.random().toString(36).substring(2,10);
+  const url=API_BASE+'/auth?plugin_session='+sid;
+  try{exec('start "" "'+url+'"');}catch(e){try{exec('open "'+url+'"');}catch(e2){}}
+  $('loginMsg').textContent='ממתין להתחברות בדפדפן...';$('loginMsg').className='msg busy';$('btnGoogle').disabled=true;
+  let attempts=0;clearInterval(_pollTimer);
+  _pollTimer=setInterval(async()=>{attempts++;
+    if(attempts>90){clearInterval(_pollTimer);$('loginMsg').textContent='פג תוקף — נסה שוב';$('loginMsg').className='msg bad';$('btnGoogle').disabled=false;return;}
+    try{const r=await apiPost('/api/auth/plugin-session',{action:'check',session_id:sid});
+      if(r.ok&&r.status==='ready'&&r.api_key){clearInterval(_pollTimer);API_KEY=r.api_key;USER=r.user;saveAuth({api_key:r.api_key,user:USER});enterApp();}}catch(e){}
+  },2000);
+};
+
+function enterApp(){$('tabBar').style.display='flex';$('userBar').style.display='flex';$('userEmail').textContent=USER.email||'';
+  showScreen('s-main');document.querySelector('[data-s="main"]').classList.add('on');setPill('מוכן ✓');ftr('מוכן');
+  updateQuotaMini();loadSeq();startInOutRefresh();checkForUpdate();}
+
+// ── Sequence ──
+let _seqTimer=null;
+function loadSeq(retries=8){clearTimeout(_seqTimer);ftr('טוען רצף...');
+  evalScript('getSeq()',raw=>{if(!raw||raw.includes('CEP')){if(retries>0)_seqTimer=setTimeout(()=>loadSeq(retries-1),1000);return;}
+    let info;try{info=JSON.parse(raw);}catch(e){if(retries>0)_seqTimer=setTimeout(()=>loadSeq(retries-1),800);return;}
+    if(!info.ok){ftr('פתח רצף');if(retries>0)_seqTimer=setTimeout(()=>loadSeq(retries-1),3000);return;}
+    SEQ=info;updateSeqUI();loadAudioTracks();updateRunButton();ftr('מוכן');});}
+function updateSeqUI(){if(!SEQ)return;
+  $('ioStatus').innerHTML=SEQ.hasWA?`<div class="badge g" style="margin-bottom:8px">✓ In/Out: ${fd(SEQ.i)} → ${fd(SEQ.o)} (${fd(SEQ.o-SEQ.i)})</div>`
+    :`<div class="badge warn" style="margin-bottom:8px">⚠️ סמן In/Out בטיימליין</div>`;updateRunButton();}
+function updateRunButton(){const ok=SEQ&&SEQ.hasWA;$('btnRun').disabled=!ok||RUNNING;
+  $('btnRun').textContent=!ok&&SEQ?'⚠️ סמן In/Out קודם':'✨ תמלל עם AI';$('btnRun').style.opacity=!ok&&SEQ?'0.4':'';}
+
+let _ioTimer=null;
+function startInOutRefresh(){clearInterval(_ioTimer);_ioTimer=setInterval(()=>{if(RUNNING||!SEQ)return;
+  evalScript('getInOut()',raw=>{try{const d=JSON.parse(raw);if(!d.ok)return;
+    if(d.i!==SEQ.i||d.o!==SEQ.o||d.hasWA!==SEQ.hasWA){SEQ.i=d.i;SEQ.o=d.o;SEQ.hasWA=d.hasWA;SEQ.dur=d.dur;updateSeqUI();}}catch(e){}});},2000);}
+
+function loadAudioTracks(){evalScript('getAudioTracks()',raw=>{try{const d=JSON.parse(raw);if(!d.ok||!d.tracks)return;
+  const sel=$('selTrack');sel.innerHTML='<option value="all">כל הרצועות</option>';
+  d.tracks.forEach(t=>{sel.innerHTML+=`<option value="${t.index}">${t.name}</option>`;});}catch(e){}});}
+let _savedMutes=null;
+function soloTrackBefore(cb){const sel=$('selTrack').value;if(sel==='all'){_savedMutes=null;cb();return;}
+  evalScript(`soloAudioTrack(${parseInt(sel)})`,raw=>{try{const d=JSON.parse(raw);if(d.ok)_savedMutes=JSON.stringify(d.originalStates);}catch(e){}cb();});}
+function restoreTracksAfter(){if(!_savedMutes)return;evalScript(`restoreTrackMutes('${_savedMutes.replace(/'/g,"\\'")}')`,()=>{});_savedMutes=null;}
+
+function updateQuotaMini(){if(!USER)return;$('quotaMini').textContent=Math.max(0,USER.remaining||0).toFixed(0)+' דק׳';}
+
+function buyMinutes(){try{exec('start "" "'+API_BASE+'/dashboard#buy"');}catch(e){try{exec('open "'+API_BASE+'/dashboard#buy"');}catch(e2){}}}
+function openManage(){try{exec('start "" "'+API_BASE+'/dashboard"');}catch(e){try{exec('open "'+API_BASE+'/dashboard"');}catch(e2){}}}
+
+async function refreshAccount(){if(!API_KEY)return;
+  try{const r=await apiPost('/api/transcribe',{api_key:API_KEY,action:'status'});if(!r.error){USER.plan=r.plan;USER.used=r.minutes_used;USER.limit=r.minutes_limit;USER.remaining=r.minutes_remaining;}}catch(e){}
+  if(!USER)return;const names={free:'חינמי',pro:'פרו ⭐',studio:'סטודיו 💎'};
+  $('acPlan').textContent=names[USER.plan]||USER.plan;$('acPlanSub').textContent=USER.plan==='free'?'10 דקות מתנה':(USER.remaining||0).toFixed(0)+' דקות נותרו';
+  const pct=USER.limit>0?Math.min(100,((USER.used||0)/USER.limit)*100):0;$('usageFill').style.width=pct+'%';
+  $('usageLeft').textContent=Math.max(0,(USER.remaining||0)).toFixed(1)+' דקות נותרו';$('usageTotal').textContent=(USER.used||0).toFixed(1)+' / '+(USER.limit||0);updateQuotaMini();}
+
+// ── Auto-Update — downloads files directly, no reinstall ──
+async function checkForUpdate(){try{const r=await apiGet('/api/plugin-version');
+  if(r.version&&r.version!==PLUGIN_VERSION){$('updateBar').style.display='block';$('updateBar').textContent=`🔄 גרסה ${r.version} זמינה — לחץ לעדכון אוטומטי`;}}catch(e){}}
+async function doUpdate(){
+  $('updateBar').textContent='⬇ מעדכן...';$('updateBar').style.pointerEvents='none';
+  const extDir=PATH.join(process.env.APPDATA||'','Adobe','CEP','extensions','com.subai.cloud.panel');
+  try{
+    const idx=await new Promise((resolve,reject)=>{
+      const url=new(require('url').URL)(API_BASE+'/api/plugin-files?file=index.html');
+      https.get(url,res=>{let buf='';res.on('data',d=>buf+=d);res.on('end',()=>resolve(buf));}).on('error',reject);});
+    if(idx&&idx.length>1000)FS.writeFileSync(PATH.join(extDir,'index.html'),idx,'utf8');
+    const jsx=await new Promise((resolve,reject)=>{
+      const url=new(require('url').URL)(API_BASE+'/api/plugin-files?file=host.jsx');
+      https.get(url,res=>{let buf='';res.on('data',d=>buf+=d);res.on('end',()=>resolve(buf));}).on('error',reject);});
+    if(jsx&&jsx.length>500){FS.mkdirSync(PATH.join(extDir,'jsx'),{recursive:true});FS.writeFileSync(PATH.join(extDir,'jsx','host.jsx'),jsx,'utf8');}
+    $('updateBar').textContent='✅ עודכן! סגור ופתח מחדש את Premiere Pro';
+    $('updateBar').style.background='linear-gradient(135deg,rgba(52,211,153,0.2),rgba(52,211,153,0.1))';
+    $('updateBar').style.color='#34d399';
+  }catch(e){$('updateBar').textContent='❌ עדכון נכשל — '+e.message;$('updateBar').style.pointerEvents='auto';}
 }
 
-// ── Get In/Out points (lightweight poll) ──
-function getInOut() {
-  try {
-    var seq = app.project.activeSequence;
-    if (!seq) return JSON.stringify({ok:false});
-    var ticksPerSec = 254016000000;
-    var dur = seq.end / ticksPerSec;
-    var io = seq.getInPoint();
-    var oo = seq.getOutPoint();
-    var inSec = io / ticksPerSec;
-    var outSec = oo / ticksPerSec;
-    var hasWA = (outSec - inSec) > 0.3 && outSec < dur + 1;
-    if (!hasWA) { inSec = 0; outSec = dur; hasWA = dur > 0.5; }
-    return JSON.stringify({ok:true,i:inSec,o:outSec,hasWA:hasWA,dur:dur});
-  } catch(e) { return JSON.stringify({ok:false}); }
+// ── Main Workflow ──
+function setP(pct,msg,sub){$('pFill').style.width=pct+'%';$('pMsg').textContent=msg;$('pSub').textContent=sub||'';}
+function showErr(msg){$('errMsg').textContent=msg;$('errBox').style.display='block';ftr('שגיאה');}
+function finish(ok,msg){RUNNING=false;updateRunButton();$('progBox').style.display='none';if(!ok)showErr(msg);}
+
+async function runAll(){
+  if(RUNNING)return;if(!SEQ||!SEQ.hasWA){showErr('סמן In/Out בטיימליין.');return;}if(!API_KEY){showErr('התחבר תחילה.');return;}
+  RUNNING=true;updateRunButton();$('resBox').style.display='none';$('errBox').style.display='none';$('progBox').style.display='block';
+  const lang=$('selLang').value,style=$('selStyle').value;
+  const wordsPerGroup=parseInt(style.replace('word',''))||1;
+  const inSec=SEQ.i,outSec=SEQ.o,clipDur=outSec-inSec;
+  if(clipDur<0.5){finish(false,'הקטע קצר מדי.');return;}
+  const tmp=OS.tmpdir(),wavPath=PATH.join(tmp,`subai_${Date.now()}.wav`),mp3Path=wavPath.replace('.wav','.mp3');
+
+  setP(3,'מכין אודיו...','');await new Promise(r=>soloTrackBefore(r));
+  setP(5,'מייצא אודיו...','');
+  const expRaw=await new Promise(r=>evalScript(`exportAudio("${e2(wavPath)}","",false)`,r));
+  let expData;try{expData=JSON.parse(expRaw);}catch(e){restoreTracksAfter();finish(false,'שגיאת ייצוא.');return;}
+  if(!expData.ok){restoreTracksAfter();finish(false,'ייצוא נכשל: '+(expData.e||''));return;}
+  const isAME=expData.async===true;let waited=0,lastSz=0,stable=0;
+  while(waited<EXPORT_TIMEOUT){if(!RUNNING){restoreTracksAfter();finish(false,'בוטל.');return;}
+    const ex=FS.existsSync(wavPath),sz=ex?FS.statSync(wavPath).size:0;
+    if(ex&&sz>1000){if(isAME){if(sz===lastSz){stable+=500;if(stable>=1500)break;}else stable=0;}else break;}
+    lastSz=sz;await new Promise(r=>setTimeout(r,500));waited+=500;}
+  if(!FS.existsSync(wavPath)||FS.statSync(wavPath).size<500){restoreTracksAfter();finish(false,'ייצוא לא הושלם.');return;}
+  restoreTracksAfter();
+
+  setP(12,'חותך לפי In/Out...','');let audioSrc=wavPath;
+  if(inSec>0){const trimPath=wavPath.replace('.wav','_trim.wav');
+    await new Promise(r=>{const p=spawn('ffmpeg',['-y','-i',wavPath,'-ss',String(inSec),'-t',String(clipDur),'-acodec','copy',trimPath],{stdio:['pipe','pipe','pipe']});
+      p.on('close',code=>{if(code===0&&FS.existsSync(trimPath)&&FS.statSync(trimPath).size>200){try{FS.unlinkSync(wavPath);}catch(_){}audioSrc=trimPath;}r();});p.on('error',()=>r());});}
+
+  setP(16,'ממיר...','');let audioFile=audioSrc;
+  await new Promise(r=>{const p=spawn('ffmpeg',['-y','-i',audioSrc,'-ar','16000','-ac','1','-b:a','64k',mp3Path],{stdio:['pipe','pipe','pipe']});
+    p.on('close',code=>{if(code===0&&FS.existsSync(mp3Path)&&FS.statSync(mp3Path).size>200){audioFile=mp3Path;try{FS.unlinkSync(audioSrc);}catch(_){}}r();});p.on('error',()=>r());});
+
+  setP(22,'מתחבר...','');let uploadData;
+  try{uploadData=await apiPost('/api/transcribe',{api_key:API_KEY,action:'get_upload_url'});}catch(e){finish(false,'שגיאת חיבור.');try{FS.unlinkSync(audioFile);}catch(_){}return;}
+  if(uploadData.error){finish(false,uploadData.message||'שגיאה');try{FS.unlinkSync(audioFile);}catch(_){}return;}
+
+  setP(32,'מעלה...','');
+  try{await uploadToS3(uploadData.upload_url,audioFile);}catch(e){finish(false,'העלאה: '+e.message);try{FS.unlinkSync(audioFile);}catch(_){}return;}
+  try{FS.unlinkSync(audioFile);}catch(_){}
+
+  setP(45,'טוען מנוע AI...','המתמלל מתחמם — ייתכן המתנה קצרה');
+  let result;
+  try{result=await apiPost('/api/transcribe',{api_key:API_KEY,action:'transcribe',download_url:uploadData.download_url,
+    file_key:uploadData.file_key,lang,model:'large-v3',offset:inSec,audio_duration:clipDur,
+    caption_style:style,words_per_group:wordsPerGroup});}
+  catch(e){finish(false,'שגיאת תמלול: '+e.message);return;}
+  if(result.error){finish(false,result.message||'שגיאת תמלול');return;}
+
+  const srt=result.srt||'';const segments=result.segments||[];
+  if(!srt.trim()&&segments.length===0){finish(false,'לא נמצא דיבור.');return;}
+  const cnt=result.count||segments.length;
+
+  setP(88,'מציב כתוביות...','');
+  const extPath=PATH.join(process.env.APPDATA||'','Adobe','CEP','extensions','com.subai.cloud.panel').replace(/\\/g,'/');
+  const segs=segments.map(s=>({start:s.start+(parseFloat(inSec)||0),end:s.end+(parseFloat(inSec)||0),text:s.text}));
+  const segsJson=JSON.stringify(segs).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const placeRaw=await new Promise(r=>evalScript(`placeCaptions('${segsJson}','${extPath.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}',-1)`,r));
+  let placeResult;try{placeResult=JSON.parse(placeRaw);}catch(_){placeResult={ok:false};}
+  if(!placeResult.ok||placeResult.method==='srt_project'){
+    // Save SRT to project folder (or temp if no project)
+    let projectDir=tmp;
+    try{const ppRaw=await new Promise(r=>evalScript('getProjectPath()',r));
+      const pp=JSON.parse(ppRaw);if(pp.ok&&pp.path)projectDir=pp.path;}catch(_){}
+    const srtPath=PATH.join(projectDir,san(SEQ.name)+'_SubAI.srt');FS.writeFileSync(srtPath,srt,'utf8');
+    if(!placeResult.ok)await new Promise(r=>evalScript(`importSRT("${e2(srtPath)}",${inSec})`,r));}
+
+  setP(100,'✅ הושלם!','');await new Promise(r=>setTimeout(r,600));$('progBox').style.display='none';
+  if(result.minutes_remaining!==undefined){USER.remaining=result.minutes_remaining;USER.used=(USER.limit||0)-result.minutes_remaining;updateQuotaMini();}
+  $('rChips').innerHTML=`<span class="chip g">✅ ${cnt} כתוביות</span><span class="chip b">⚡ ${result.elapsed||'—'}s</span>`+(result.minutes_charged?`<span class="chip b">📊 ${result.minutes_charged} דק׳</span>`:'');
+  $('resBox').style.display='block';ftr(`✓ ${cnt} כתוביות!`);RUNNING=false;updateRunButton();
 }
 
-// ── Get project folder path (for saving SRT) ──
-function getProjectPath() {
-  try {
-    var proj = app.project;
-    if (!proj || !proj.path || proj.path === "") return JSON.stringify({ok:false,e:"Project not saved"});
-    var f = new File(proj.path);
-    return JSON.stringify({ok:true, path:f.parent.fsName});
-  } catch(e) { return JSON.stringify({ok:false, e:e.toString()}); }
-}
+$('btnRun').onclick=runAll;
+$('btnErrClose').onclick=()=>{$('errBox').style.display='none';};
+$('btnLogout').onclick=()=>{clearAuth();API_KEY=null;USER=null;SEQ=null;$('tabBar').style.display='none';$('userBar').style.display='none';$('updateBar').style.display='none';showScreen('s-onboard');$('loginMsg').textContent='';$('btnGoogle').disabled=false;setPill('');ftr('');clearInterval(_ioTimer);clearInterval(_pollTimer);};
 
-// ── Export audio via AME or direct ──
-function exportAudio(outPath, preset, useAME) {
-  try {
-    var seq = app.project.activeSequence;
-    if (!seq) return JSON.stringify({ok:false,e:"No sequence"});
-    // Use Premiere's built-in export
-    seq.exportAsMediaDirect(outPath, "C:\\Program Files\\Adobe\\Adobe Premiere Pro 2025\\MediaIO\\systempresets\\58534150_4D6F6E6F.epr", 0);
-    return JSON.stringify({ok:true, async:false});
-  } catch(e) {
-    // Fallback: try AME
-    try {
-      var encoder = app.encoder;
-      if (encoder) {
-        encoder.launchEncoder();
-        var seqPath = seq.projectItem.treePath;
-        encoder.encodeSequence(seq, outPath, "C:\\Program Files\\Adobe\\Adobe Premiere Pro 2025\\MediaIO\\systempresets\\58534150_4D6F6E6F.epr", 0, 1);
-        return JSON.stringify({ok:true, async:true});
-      }
-    } catch(e2) {}
-    return JSON.stringify({ok:false, e:e.toString()});
-  }
-}
-
-// ── Get audio tracks ──
-function getAudioTracks() {
-  try {
-    var seq = app.project.activeSequence;
-    if (!seq) return JSON.stringify({ok:false});
-    var tracks = [];
-    for (var i = 0; i < seq.audioTracks.numTracks; i++) {
-      var t = seq.audioTracks[i];
-      if (t.clips.numItems > 0) {
-        tracks.push({index:i, name:t.name || ("Audio " + (i+1))});
-      }
-    }
-    return JSON.stringify({ok:true, tracks:tracks});
-  } catch(e) { return JSON.stringify({ok:false, e:e.toString()}); }
-}
-
-// ── Solo audio track (mute all others) ──
-function soloAudioTrack(trackIndex) {
-  try {
-    var seq = app.project.activeSequence;
-    if (!seq) return JSON.stringify({ok:false});
-    var states = [];
-    for (var i = 0; i < seq.audioTracks.numTracks; i++) {
-      states.push(seq.audioTracks[i].isMuted());
-      if (i !== trackIndex) seq.audioTracks[i].setMute(1);
-      else seq.audioTracks[i].setMute(0);
-    }
-    return JSON.stringify({ok:true, originalStates:states});
-  } catch(e) { return JSON.stringify({ok:false, e:e.toString()}); }
-}
-
-// ── Restore track mute states ──
-function restoreTrackMutes(statesJson) {
-  try {
-    var seq = app.project.activeSequence;
-    if (!seq) return JSON.stringify({ok:false});
-    var states = eval('(' + statesJson + ')');
-    for (var i = 0; i < states.length && i < seq.audioTracks.numTracks; i++) {
-      seq.audioTracks[i].setMute(states[i] ? 1 : 0);
-    }
-    return JSON.stringify({ok:true});
-  } catch(e) { return JSON.stringify({ok:false}); }
-}
-
-// ── Place captions as MOGRT or text clips on timeline ──
-function placeCaptions(segsJson, extPath, trackIdx) {
-  try {
-    var seq = app.project.activeSequence;
-    if (!seq) return JSON.stringify({ok:false, e:"No sequence"});
-    var segs = eval('(' + segsJson + ')');
-    if (!segs || segs.length === 0) return JSON.stringify({ok:false, e:"No segments"});
-    
-    var ticksPerSec = 254016000000;
-    
-    // Try MOGRT approach first
-    var mogrtPath = extPath + "/mogrt/SubAI_Caption.mogrt";
-    var mogrtFile = new File(mogrtPath);
-    
-    if (mogrtFile.exists) {
-      // Use MOGRT
-      var vidTrackIdx = (trackIdx >= 0) ? trackIdx : seq.videoTracks.numTracks - 1;
-      if (vidTrackIdx < 0) vidTrackIdx = 0;
-      var vidTrack = seq.videoTracks[vidTrackIdx];
-      
-      for (var i = 0; i < segs.length; i++) {
-        var s = segs[i];
-        var startTicks = Math.round(s.start * ticksPerSec).toString();
-        var endTicks = Math.round(s.end * ticksPerSec).toString();
-        try {
-          var clip = seq.importMGT(mogrtPath, startTicks, vidTrackIdx, vidTrackIdx);
-          if (clip) {
-            clip.end = endTicks;
-            // Set text property
-            var components = clip.getMGTComponent();
-            if (components) {
-              components.properties[0].setValue(s.text);
-            }
-          }
-        } catch(me) {}
-      }
-      return JSON.stringify({ok:true, method:"mogrt", count:segs.length});
-    }
-    
-    // Fallback: use SRT import method
-    return JSON.stringify({ok:false, method:"srt_project"});
-    
-  } catch(e) { return JSON.stringify({ok:false, e:e.toString()}); }
-}
-
-// ── Import SRT file into project ──
-function importSRT(srtPath, offsetSec) {
-  try {
-    var proj = app.project;
-    if (!proj) return JSON.stringify({ok:false});
-    
-    // Import SRT as caption file
-    var fileArr = [srtPath];
-    var suppressUI = true;
-    proj.importFiles(fileArr, suppressUI);
-    
-    // Try to add to active sequence
-    try {
-      var seq = app.project.activeSequence;
-      if (seq) {
-        // Find the imported item
-        var rootItem = proj.rootItem;
-        for (var i = rootItem.children.numItems - 1; i >= 0; i--) {
-          var item = rootItem.children[i];
-          if (item.name.indexOf("SubAI") >= 0 || item.name.indexOf(".srt") >= 0) {
-            // Insert at beginning of first caption track or video track
-            var ticksPerSec = 254016000000;
-            var offset = Math.round((offsetSec || 0) * ticksPerSec).toString();
-            seq.insertClip(item, offset, seq.videoTracks.numTracks - 1, seq.videoTracks.numTracks - 1);
-            break;
-          }
-        }
-      }
-    } catch(se) {}
-    
-    return JSON.stringify({ok:true});
-  } catch(e) { return JSON.stringify({ok:false, e:e.toString()}); }
-}
+(function boot(){setPill('מחבר...');ftr('מחבר...');
+  waitBridge(10000,ok=>{if(!ok){setPill('בעיית חיבור');ftr('סגור ופתח מחדש');}
+    const saved=loadAuth();
+    if(saved&&saved.api_key&&saved.user){API_KEY=saved.api_key;USER=saved.user;enterApp();
+      setTimeout(async()=>{try{const r=await apiPost('/api/transcribe',{api_key:saved.api_key,action:'status'});
+        if(!r.error){USER.plan=r.plan;USER.used=r.minutes_used;USER.limit=r.minutes_limit;USER.remaining=r.minutes_remaining;updateQuotaMini();}}catch(e){}},3000);
+    }else{showScreen('s-onboard');setPill('');ftr('');}});
+})();
+</script>
+</body>
+</html>
