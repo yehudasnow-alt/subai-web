@@ -5,9 +5,11 @@
  * Modal Whisper → Hallucination Filter → Haiku Hebrew Expert (2-pass) → Split → RTL SRT
  *
  * ════════════════════════════════════════════════════════════
- * IRON LAW: ALL TIMESTAMPS ARE WHISPER'S ORIGINALS.
- * AI corrects TEXT ONLY. Word count per segment stays IDENTICAL.
- * word.start / word.end are NEVER modified.
+ * IRON LAW: SRT TIMESTAMPS ARE WHISPER'S ORIGINALS.
+ * Segment start/end = Whisper's first/last word times (LOCKED).
+ * When AI changes word count (±2 max), word-level timestamps
+ * are redistributed proportionally WITHIN the locked segment
+ * boundaries. The SRT output is never affected.
  * ════════════════════════════════════════════════════════════
  *
  * PHILOSOPHY:
@@ -195,6 +197,20 @@ function filterHallucinations(
     if (textWords.length >= 4 && uniqueWords <= 2) {
       skip = true; reason = "repeating pattern";
     }
+    // Repeating characters — e.g. "שששששששש..." (seg 64 type)
+    if (text.length > 10) {
+      const charCounts = new Map<string, number>();
+      for (const ch of text.replace(/\s/g, "")) {
+        charCounts.set(ch, (charCounts.get(ch) || 0) + 1);
+      }
+      const totalChars = text.replace(/\s/g, "").length;
+      for (const [, count] of charCounts) {
+        if (count / totalChars > 0.8) {
+          skip = true; reason = "repeating character";
+          break;
+        }
+      }
+    }
 
     if (skip) {
       console.log(`[FILTER] Removed seg ${i} (${reason}): "${text.substring(0, 40)}…"`);
@@ -260,9 +276,11 @@ function buildPass1Prompt(): string {
 שלב 3 — ודא שלא שינית מילים תקינות. רק מילים שהן שגיאת פענוח.
 
 ═══════════════════════════════════════════════
-חוק ברזל — מספר המילים בכל שורה חייב להישאר זהה!
-(3w) בקלט = (3w) בפלט. לעולם אל תוסיף, תמחק, תפצל או תמזג מילים.
+חוק ברזל — שמור על מספר מילים קרוב ככל האפשר!
+(3w) בקלט → עדיף (3w) בפלט. מותר הפרש של ±2 מילים
+אם זה הכרחי (למשל: "בגצל" → "בגיא צל" = +1 מילה — זה בסדר).
 גרשיים לא יוצרים מילה חדשה: רמבם → רמב"ם = מילה אחת.
+אל תוסיף/תמחק מילים שלא לצורך! רק כשWhisper מיזג/פיצל לא נכון.
 ═══════════════════════════════════════════════
 
 פורמט: [index] טקסט מתוקן — שורה לכל סגמנט, בלי לדלג.
@@ -307,6 +325,23 @@ Whisper לפעמים מפרק/ממזג תחיליות שלא כדין:
 ואישועה → וישועה (א' מיותרת)
 אהולך → הולך (א' מיותרת)
 אוהזר → חזר (א' מיותרת + ה→ח)
+
+══════════════════════════════════════════════════════════════
+מיזוג/פיצול שגוי — Whisper מחבר או מפריד מילים לא נכון:
+══════════════════════════════════════════════════════════════
+
+Whisper ממזג מילים (צריך לפצל — מותר +1 מילה):
+בגצל → בגיא צל (תהלים כ"ג — "בגיא צלמוות")
+יררה → אירא רע (Whisper מיזג — צריך 2 מילים)
+ברחו → ברוך הוא (Whisper קיצר "הקדוש ברוך הוא")
+
+Whisper מפצל מילים (צריך למזג — מותר -1 מילה):
+עם מודי → עמדי/עימדי (תהלים כ"ג — כי אתה עמדי)
+כל יום → כליום (rare)
+
+כלל: אם Whisper יצר מילה שלא קיימת על ידי מיזוג — פצל.
+אם Whisper פיצל מילה קיימת לשתיים חסרות משמעות — מזג.
+זה מותר כשהשינוי הוא ±1 או ±2 מילים.
 
 ══════════════════════════════════════════════════════════════
 קיצורים וגרשיים — תמיד מילה אחת:
@@ -372,7 +407,7 @@ Whisper לפעמים מפרק/ממזג תחיליות שלא כדין:
 מה אסור לעשות — בשום מצב:
 ══════════════════════════════════════════════════════════════
 
-❌ לשנות מספר מילים (להוסיף, למחוק, לפצל, למזג)
+❌ להוסיף/למחוק מילים שלא לצורך — רק כש-Whisper מיזג או פיצל שלא כדין
 ❌ להחליף מילה תקינה במילה נרדפת (הלך→צעד, גדול→עצום, אמר→ציין)
 ❌ לשפר סגנון או דקדוק של דיבור חופשי
 ❌ למחוק מילות מילוי (כאילו, אממ, אה, נו, בוא, סתם, כזה) — אלה עוגני תזמון!
@@ -397,8 +432,9 @@ function buildPass2Prompt(): string {
 תפקידך: להוסיף פיסוק טבעי ולתפוס שגיאות שנשארו.
 
 ═══════════════════════════════════════════════
-חוק ברזל — מספר המילים בכל שורה חייב להישאר זהה!
+חוק ברזל — שמור על מספר מילים קרוב ככל האפשר!
 פיסוק מתחבר למילה שלפניו: "שלום." = מילה אחת. "שלום ." = שגיאה.
+אם נדרש שינוי של ±1 מילה (למשל פיצול מילה ממוזגת) — מותר.
 ═══════════════════════════════════════════════
 
 פורמט: [index] טקסט מתוקן — שורה אחת לכל סגמנט, בלי לדלג.
@@ -428,7 +464,7 @@ function buildPass2Prompt(): string {
 אבל: אל תשנה מילים שPass 1 השאיר בכוונה. אם המילה קיימת ויכולה להתאים → השאר.
 
 מה לא לעשות:
-❌ לשנות מספר מילים
+❌ להוסיף/למחוק מילים שלא לצורך
 ❌ להחליף מילים בנרדפות
 ❌ לפרמל שפה מדוברת
 ❌ למחוק מילות מילוי
@@ -496,17 +532,40 @@ function parseCorrections(output: string): Array<{ idx: number; text: string }> 
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2D: APPLY CORRECTIONS — TIMESTAMP-LOCKED
+// STEP 2D: APPLY CORRECTIONS — SEGMENT-TIMESTAMP-LOCKED
 // ══════════════════════════════════════════════════════════════
 //
-// GUARANTEE:
-// • word.start — NEVER modified (Whisper's original)
-// • word.end   — NEVER modified (Whisper's original)
-// • seg.start  — NEVER modified (= first word's Whisper start)
-// • seg.end    — NEVER modified (= last word's Whisper end)
-// • Only word.word (the text string) is replaced
-// • If corrected word count ≠ original → ENTIRE segment rejected
+// GUARANTEES:
+// • seg.start — ALWAYS = Whisper's original first-word start (LOCKED)
+// • seg.end   — ALWAYS = Whisper's original last-word end (LOCKED)
+// • SRT timestamps are therefore 100% Whisper-accurate
 //
+// WORD COUNT POLICY:
+// • Same word count → map 1:1, original word timestamps preserved
+// • ±1 or ±2 words → ACCEPT, redistribute word timestamps
+//   proportionally within the LOCKED segment boundaries
+// • ±3+ words → REJECT entire segment (too risky)
+//
+
+/**
+ * Redistribute word timestamps proportionally within locked segment boundaries.
+ * segStart and segEnd are Whisper's originals and never change.
+ */
+function redistributeWordTimestamps(
+  corrWords: string[],
+  segStart: number,
+  segEnd: number,
+): Word[] {
+  const totalDur = segEnd - segStart;
+  const n = corrWords.length;
+  if (n === 0) return [];
+  const wordDur = totalDur / n;
+  return corrWords.map((w, i) => ({
+    start: +(segStart + i * wordDur).toFixed(3),
+    end: +(segStart + (i + 1) * wordDur).toFixed(3),
+    word: w,
+  }));
+}
 
 function applyCorrections(
   segs: TimedSegment[],
@@ -522,11 +581,12 @@ function applyCorrections(
 
     const origWords = seg.text.split(/\s+/).filter((w) => w);
     const corrWords = correction.text.split(/\s+/).filter((w) => w);
+    const wordDiff = Math.abs(corrWords.length - origWords.length);
 
-    // ═══ IRON LAW: word count must be identical ═══
-    if (corrWords.length !== origWords.length) {
+    // ═══ REJECT if word count changed by 3+ ═══
+    if (wordDiff > 2) {
       console.warn(
-        `[${passName}] REJECTED seg ${i} (words ${origWords.length}→${corrWords.length}): "${seg.text.trim()}" → "${correction.text}"`,
+        `[${passName}] REJECTED seg ${i} (words ${origWords.length}→${corrWords.length}): "${seg.text.trim().substring(0, 60)}" → "${correction.text.substring(0, 60)}"`,
       );
       rejected++;
       return seg;
@@ -541,6 +601,7 @@ function applyCorrections(
       // Punctuation-only change → always accept
       if (seg.text.trim() !== correction.text) {
         accepted++;
+        // Same word count guaranteed here — map 1:1
         const newWords = seg.words.map((w, wi) => ({
           start: w.start,             // ← LOCKED
           end: w.end,                 // ← LOCKED
@@ -559,28 +620,40 @@ function applyCorrections(
 
     if (dist > threshold) {
       console.warn(
-        `[${passName}] REJECTED seg ${i} (lev ${(dist * 100).toFixed(0)}%): "${seg.text.trim()}" → "${correction.text}"`,
+        `[${passName}] REJECTED seg ${i} (lev ${(dist * 100).toFixed(0)}%): "${seg.text.trim().substring(0, 60)}" → "${correction.text.substring(0, 60)}"`,
       );
       rejected++;
       return seg;
     }
 
-    // ═══ ACCEPTED — replace ONLY word text, timestamps UNTOUCHED ═══
-    console.log(
-      `[${passName}] OK seg ${i} (${(dist * 100).toFixed(0)}%): "${seg.text.trim()}" → "${correction.text}"`,
-    );
+    // ═══ ACCEPTED ═══
     accepted++;
 
-    const newWords = seg.words.map((w, wi) => ({
-      start: w.start,             // ← LOCKED
-      end: w.end,                 // ← LOCKED
-      probability: w.probability, // ← PRESERVED
-      word: wi < corrWords.length ? corrWords[wi] : w.word,
-    }));
+    let newWords: Word[];
+
+    if (wordDiff === 0) {
+      // Same word count → 1:1 mapping, original timestamps preserved
+      newWords = seg.words.map((w, wi) => ({
+        start: w.start,             // ← LOCKED (Whisper original)
+        end: w.end,                 // ← LOCKED (Whisper original)
+        probability: w.probability,
+        word: wi < corrWords.length ? corrWords[wi] : w.word,
+      }));
+      console.log(
+        `[${passName}] OK seg ${i} (${(dist * 100).toFixed(0)}%, same wc): "${seg.text.trim().substring(0, 50)}" → "${correction.text.substring(0, 50)}"`,
+      );
+    } else {
+      // Word count changed by 1-2 → redistribute WITHIN locked segment bounds
+      // seg.start and seg.end stay EXACTLY as Whisper set them
+      newWords = redistributeWordTimestamps(corrWords, seg.start, seg.end);
+      console.log(
+        `[${passName}] OK seg ${i} (${(dist * 100).toFixed(0)}%, wc ${origWords.length}→${corrWords.length}): "${seg.text.trim().substring(0, 50)}" → "${correction.text.substring(0, 50)}"`,
+      );
+    }
 
     return {
-      start: seg.start, // ← LOCKED
-      end: seg.end,     // ← LOCKED
+      start: seg.start, // ← LOCKED (Whisper's original)
+      end: seg.end,     // ← LOCKED (Whisper's original)
       text: correction.text,
       words: newWords,
     };
@@ -603,8 +676,85 @@ function levenshtein(a: string, b: string): number {
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2E: MULTI-PASS ORCHESTRATOR
+// STEP 2E: MULTI-PASS ORCHESTRATOR WITH BATCHING
 // ══════════════════════════════════════════════════════════════
+
+const BATCH_SIZE = 30;    // segments per batch — keeps Haiku fast
+const BATCH_OVERLAP = 3;  // overlap for context continuity
+
+/**
+ * Split segments into overlapping batches.
+ * Each batch has BATCH_SIZE segments with BATCH_OVERLAP overlap.
+ * Returns array of { startIdx, segs } where startIdx is the
+ * original index of the first segment in this batch.
+ */
+function makeBatches(segs: TimedSegment[]): Array<{ startIdx: number; segs: TimedSegment[] }> {
+  if (segs.length <= BATCH_SIZE) {
+    return [{ startIdx: 0, segs }];
+  }
+
+  const batches: Array<{ startIdx: number; segs: TimedSegment[] }> = [];
+  let i = 0;
+  while (i < segs.length) {
+    const end = Math.min(i + BATCH_SIZE, segs.length);
+    batches.push({ startIdx: i, segs: segs.slice(i, end) });
+    i = end - BATCH_OVERLAP;
+    if (i >= segs.length - BATCH_OVERLAP) {
+      // Last batch already covers the rest
+      break;
+    }
+  }
+  return batches;
+}
+
+/**
+ * Run a single Haiku pass on batches, merge results.
+ */
+async function runPassOnBatches(
+  allSegs: TimedSegment[],
+  batches: Array<{ startIdx: number; segs: TimedSegment[] }>,
+  systemPrompt: string,
+  passName: string,
+  timeoutMs: number,
+  confHints: string = "",
+): Promise<{ segments: TimedSegment[]; accepted: number; rejected: number }> {
+  let totalAccepted = 0;
+  let totalRejected = 0;
+
+  // We'll collect all corrections with their GLOBAL indices
+  const allCorrections: Array<{ idx: number; text: string }> = [];
+
+  for (let bi = 0; bi < batches.length; bi++) {
+    const batch = batches[bi];
+    const input = batch.segs.map((s, localIdx) => {
+      const wc = s.text.split(/\s+/).filter((w) => w).length;
+      return `[${localIdx}] (${wc}w) ${s.text}`;
+    }).join("\n") + (bi === 0 ? confHints : "");
+
+    console.log(`[AI] ${passName} batch ${bi + 1}/${batches.length} — ${batch.segs.length} segs`);
+    const output = await callHaiku(input, systemPrompt, timeoutMs);
+
+    if (output) {
+      const batchCorr = parseCorrections(output);
+      // Map local indices back to global
+      for (const c of batchCorr) {
+        const globalIdx = batch.startIdx + c.idx;
+        // Skip overlap segments if already corrected by previous batch
+        if (!allCorrections.some((existing) => existing.idx === globalIdx)) {
+          allCorrections.push({ idx: globalIdx, text: c.text });
+        }
+      }
+    } else {
+      console.warn(`[AI] ${passName} batch ${bi + 1} returned null`);
+    }
+  }
+
+  if (allCorrections.length === 0) {
+    return { segments: allSegs, accepted: 0, rejected: 0 };
+  }
+
+  return applyCorrections(allSegs, allCorrections, passName);
+}
 
 async function aiCorrectMultiPass(
   timedSegs: TimedSegment[],
@@ -620,13 +770,8 @@ async function aiCorrectMultiPass(
 
   try {
     const confHints = buildConfidenceHints(timedSegs);
-
-    // Format input with word counts for Haiku to verify
-    const formatInput = (segs: TimedSegment[]) =>
-      segs.map((s, i) => {
-        const wc = s.text.split(/\s+/).filter((w) => w).length;
-        return `[${i}] (${wc}w) ${s.text}`;
-      }).join("\n");
+    const batches = makeBatches(timedSegs);
+    console.log(`[AI] ${timedSegs.length} segs → ${batches.length} batch(es) of ≤${BATCH_SIZE}`);
 
     let currentSegs = timedSegs;
     let totalAccepted = 0;
@@ -635,45 +780,31 @@ async function aiCorrectMultiPass(
     // ══════════════════════════════════════════
     // PASS 1: Read → Understand → Decode → Fix
     // ══════════════════════════════════════════
-    console.log(`[AI] Pass 1 (Hebrew expert decode) — ${timedSegs.length} segs`);
     const pass1Prompt = buildPass1Prompt();
-    const pass1Input = formatInput(currentSegs) + confHints;
-    const pass1Output = await callHaiku(pass1Input, pass1Prompt, 35000);
-
-    if (pass1Output) {
-      const corr1 = parseCorrections(pass1Output);
-      if (corr1.length > 0 && Math.abs(corr1.length - currentSegs.length) <= currentSegs.length * 0.3) {
-        const r1 = applyCorrections(currentSegs, corr1, "PASS1");
-        currentSegs = r1.segments;
-        totalAccepted += r1.accepted;
-        totalRejected += r1.rejected;
-        console.log(`[AI] Pass 1: ${r1.accepted} accepted, ${r1.rejected} rejected`);
-      } else {
-        console.warn(`[AI] Pass 1 integrity fail: expected ~${currentSegs.length}, got ${corr1.length}`);
-      }
-    }
+    const r1 = await runPassOnBatches(
+      currentSegs, makeBatches(currentSegs),
+      pass1Prompt, "PASS1", 30000, confHints,
+    );
+    currentSegs = r1.segments;
+    totalAccepted += r1.accepted;
+    totalRejected += r1.rejected;
+    console.log(`[AI] Pass 1 total: ${r1.accepted} accepted, ${r1.rejected} rejected`);
 
     // ══════════════════════════════════════════
     // PASS 2: Punctuation + Context refinement
     // ══════════════════════════════════════════
-    console.log(`[AI] Pass 2 (punctuation + context) — ${currentSegs.length} segs`);
     const pass2Prompt = buildPass2Prompt();
-    const pass2Input = formatInput(currentSegs);
-    const pass2Output = await callHaiku(pass2Input, pass2Prompt, 25000);
+    const r2 = await runPassOnBatches(
+      currentSegs, makeBatches(currentSegs),
+      pass2Prompt, "PASS2", 25000,
+    );
+    currentSegs = r2.segments;
+    totalAccepted += r2.accepted;
+    totalRejected += r2.rejected;
+    console.log(`[AI] Pass 2 total: ${r2.accepted} accepted, ${r2.rejected} rejected`);
 
-    if (pass2Output) {
-      const corr2 = parseCorrections(pass2Output);
-      if (corr2.length > 0 && Math.abs(corr2.length - currentSegs.length) <= currentSegs.length * 0.3) {
-        const r2 = applyCorrections(currentSegs, corr2, "PASS2");
-        currentSegs = r2.segments;
-        totalAccepted += r2.accepted;
-        totalRejected += r2.rejected;
-        console.log(`[AI] Pass 2: ${r2.accepted} accepted, ${r2.rejected} rejected`);
-      }
-    }
-
-    console.log(`[AI] TOTAL: ${totalAccepted} accepted, ${totalRejected} rejected`);
-    return { segments: currentSegs, method: `claude_2pass` };
+    console.log(`[AI] GRAND TOTAL: ${totalAccepted} accepted, ${totalRejected} rejected`);
+    return { segments: currentSegs, method: `claude_2pass_${batches.length}bat` };
   } catch (e: any) {
     console.error("[AI] Error:", e.message || e);
     return { segments: timedSegs, method: "error_fallback" };
