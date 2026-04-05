@@ -4,160 +4,350 @@
 <meta charset="UTF-8">
 <title>SubAI</title>
 <style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --glass:rgba(255,255,255,0.08);--glass2:rgba(255,255,255,0.14);--glass3:rgba(255,255,255,0.2);
-  --glassBd:rgba(255,255,255,0.16);--glassBd2:rgba(255,255,255,0.24);
-  --bg0:#0a0a12;
-  --t0:#ffffff;--t1:#c8c8e0;--t2:#8888aa;
-  --accent:#3b82f6;--accent2:#818cf8;--accentG:rgba(99,102,241,0.2);
-  --grn:#34d399;--grnG:rgba(52,211,153,0.15);
-  --org:#fbbf24;--orgG:rgba(251,191,36,0.15);
-  --red:#f87171;--redG:rgba(248,113,113,0.12);
-  --r:16px;--rs:10px;
-  --font:'Segoe UI','Arial Hebrew',system-ui,sans-serif;
-  --blur:saturate(180%) blur(20px);
+/* ═══════════════════════════════════════════════════════════════
+   SubAI v4.0 — Stylesheet
+   ═══════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --glass:    rgba(255,255,255,0.08);
+  --glass2:   rgba(255,255,255,0.14);
+  --glass3:   rgba(255,255,255,0.20);
+  --glassBd:  rgba(255,255,255,0.16);
+  --glassBd2: rgba(255,255,255,0.24);
+  --bg0:      #0a0a12;
+  --t0: #ffffff;
+  --t1: #c8c8e0;
+  --t2: #8888aa;
+  --accent:  #3b82f6;
+  --accent2: #818cf8;
+  --accentG: rgba(99,102,241,0.2);
+  --grn:  #34d399;
+  --grnG: rgba(52,211,153,0.15);
+  --org:  #fbbf24;
+  --orgG: rgba(251,191,36,0.15);
+  --red:  #f87171;
+  --redG: rgba(248,113,113,0.12);
+  --r:    16px;
+  --rs:   10px;
+  --font: 'Segoe UI', 'Arial Hebrew', system-ui, sans-serif;
+  --blur: saturate(180%) blur(20px);
 }
-html,body{width:100%;height:100%;background:var(--bg0);color:var(--t0);
-  font-family:var(--font);font-size:13px;line-height:1.6;direction:rtl;overflow:hidden;
-  background-image:radial-gradient(ellipse at 20% 50%,rgba(99,102,241,0.08) 0%,transparent 50%),
-    radial-gradient(ellipse at 80% 80%,rgba(52,211,153,0.05) 0%,transparent 50%)}
-body{display:flex;flex-direction:column}
-::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px}
 
-.hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;
-  background:var(--glass);backdrop-filter:var(--blur);border-bottom:1px solid var(--glassBd);flex-shrink:0}
-.logo-box{display:flex;align-items:center;gap:10px}
-.logo-sq{width:30px;height:30px;border-radius:10px;
-  background:linear-gradient(135deg,var(--accent),var(--accent2));
-  display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#fff}
-.logo-t{font-size:16px;font-weight:700}.logo-t span{color:var(--accent2)}
-.pill{font-size:10px;padding:3px 10px;border-radius:20px;font-weight:600;background:var(--glass2);border:1px solid var(--glassBd)}
+html, body {
+  width: 100%; height: 100%;
+  background: var(--bg0);
+  color: var(--t0);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.6;
+  direction: rtl;
+  overflow: hidden;
+  background-image:
+    radial-gradient(ellipse at 20% 50%, rgba(99,102,241,0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 80%, rgba(52,211,153,0.05) 0%, transparent 50%);
+}
+body { display: flex; flex-direction: column; }
 
-.screen{position:absolute;inset:0;overflow-y:auto;padding:14px;
-  display:flex;flex-direction:column;gap:12px;visibility:hidden;opacity:0;transition:opacity .2s}
-.screen.on{visibility:visible;opacity:1}
-#screens{flex:1;overflow:hidden;position:relative}
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 
-.card{background:var(--glass);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
-  border:1px solid var(--glassBd);border-radius:var(--r);padding:16px}
-.card-t{font-size:12px;font-weight:700;color:var(--t1);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+/* ── Header ── */
+.hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--glassBd);
+  flex-shrink: 0;
+}
+.logo-box { display: flex; align-items: center; gap: 10px; }
+.logo-sq {
+  width: 30px; height: 30px; border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 800; color: #fff;
+}
+.logo-t { font-size: 16px; font-weight: 700; }
+.logo-t span { color: var(--accent2); }
+.pill {
+  font-size: 10px; padding: 3px 10px; border-radius: 20px;
+  font-weight: 600; background: var(--glass2); border: 1px solid var(--glassBd);
+}
 
-.welcome{text-align:center;padding:30px 10px 20px}
-.welcome-icon{font-size:48px;margin-bottom:12px;filter:drop-shadow(0 0 20px rgba(99,102,241,0.4))}
-.welcome h2{font-size:20px;font-weight:800;margin-bottom:6px;background:linear-gradient(135deg,#f0f0f8,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.welcome p{font-size:12px;color:var(--t1);line-height:1.8}
+/* ── Screens ── */
+.screen {
+  position: absolute; inset: 0; overflow-y: auto; padding: 14px;
+  display: flex; flex-direction: column; gap: 12px;
+  visibility: hidden; opacity: 0; transition: opacity 0.2s;
+}
+.screen.on { visibility: visible; opacity: 1; }
+#screens { flex: 1; overflow: hidden; position: relative; }
 
-.btn-google{width:100%;padding:14px;border-radius:var(--rs);font-size:14px;font-weight:600;
-  font-family:var(--font);cursor:pointer;border:1px solid var(--glassBd2);
-  background:rgba(255,255,255,0.95);color:#333;display:flex;align-items:center;justify-content:center;gap:10px;
-  transition:all .2s;box-shadow:0 4px 16px rgba(0,0,0,0.2)}
-.btn-google:hover{transform:translateY(-1px);box-shadow:0 6px 24px rgba(0,0,0,0.3)}
-.btn-google:disabled{opacity:.4;transform:none}
+/* ── Cards ── */
+.card {
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--glassBd);
+  border-radius: var(--r);
+  padding: 16px;
+}
+.card-t {
+  font-size: 12px; font-weight: 700; color: var(--t1);
+  text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;
+}
 
-.msg{font-size:12px;margin-top:10px;text-align:center;min-height:16px;padding:8px;border-radius:var(--rs)}
-.msg.ok{background:var(--grnG);color:var(--grn)}.msg.bad{background:var(--redG);color:var(--red)}.msg.busy{background:var(--accentG);color:var(--accent2)}
+/* ── Welcome ── */
+.welcome { text-align: center; padding: 30px 10px 20px; }
+.welcome-icon { font-size: 48px; margin-bottom: 12px; filter: drop-shadow(0 0 20px rgba(99,102,241,0.4)); }
+.welcome h2 {
+  font-size: 20px; font-weight: 800; margin-bottom: 6px;
+  background: linear-gradient(135deg, #f0f0f8, #818cf8);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.welcome p { font-size: 12px; color: var(--t1); line-height: 1.8; }
 
-.badge{display:inline-block;padding:4px 14px;border-radius:20px;font-size:11px;font-weight:600;background:var(--glass2);border:1px solid var(--glassBd)}
-.badge.g{background:var(--grnG);border-color:rgba(52,211,153,0.3);color:var(--grn)}
-.badge.warn{background:var(--orgG);border-color:rgba(251,191,36,0.3);color:var(--org)}
+/* ── Buttons ── */
+.btn-google {
+  width: 100%; padding: 14px; border-radius: var(--rs);
+  font-size: 14px; font-weight: 600; font-family: var(--font);
+  cursor: pointer; border: 1px solid var(--glassBd2);
+  background: rgba(255,255,255,0.95); color: #333;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  transition: all 0.2s; box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+.btn-google:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(0,0,0,0.3); }
+.btn-google:disabled { opacity: 0.4; transform: none; }
 
-.opt-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-.opt-label{font-size:13px;color:var(--t0);font-weight:500}
+.btn-run {
+  width: 100%; padding: 16px; border-radius: var(--r);
+  font-size: 16px; font-weight: 800; font-family: var(--font);
+  cursor: pointer; border: none; color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  box-shadow: 0 4px 24px var(--accentG); transition: all 0.25s;
+}
+.btn-run:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 32px var(--accentG); }
+.btn-run:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
 
-select{background:#1e1e2e;border:1px solid var(--glassBd2);border-radius:8px;
-  color:#ffffff;font-family:var(--font);font-size:13px;padding:8px 12px;outline:none;
-  font-weight:600;-webkit-appearance:none;appearance:none;cursor:pointer;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;background-position:left 10px center;padding-left:28px;
-  color-scheme:dark}
-select:focus{border-color:var(--accent2);box-shadow:0 0 0 2px rgba(99,102,241,0.15)}
-select option{background:#1a1a2e;color:#ffffff;padding:8px;font-weight:500}
+.btn-cancel {
+  width: 100%; padding: 12px; border-radius: var(--rs);
+  font-size: 13px; font-weight: 600; font-family: var(--font);
+  cursor: pointer; border: 1px solid rgba(248,113,113,0.4);
+  background: var(--redG); color: var(--red);
+  margin-top: 8px; transition: all 0.2s;
+}
+.btn-cancel:hover { background: rgba(248,113,113,0.2); }
 
-.csel{position:relative;min-width:120px}
-.csel-btn{background:#1a1a2e;border:1px solid var(--glassBd2);border-radius:8px;color:#fff;
-  font-family:var(--font);font-size:13px;padding:8px 28px 8px 12px;cursor:pointer;font-weight:600;
-  display:flex;align-items:center;justify-content:space-between;gap:6px;white-space:nowrap}
-.csel-btn::after{content:"▾";color:#888;font-size:10px;position:absolute;left:10px;top:50%;transform:translateY(-50%)}
-.csel-btn:hover{border-color:var(--accent2)}
-.csel-list{display:none;position:absolute;top:calc(100% + 4px);right:0;left:0;z-index:999;
-  background:#1a1a2e;border:1px solid var(--glassBd2);border-radius:10px;overflow:hidden;
-  box-shadow:0 12px 32px rgba(0,0,0,0.5);max-height:200px;overflow-y:auto}
-.csel-list.open{display:block}
-.csel-opt{padding:9px 14px;color:#ccc;font-size:12px;font-weight:500;cursor:pointer;transition:background .1s;
-  border-bottom:1px solid rgba(255,255,255,0.04)}
-.csel-opt:last-child{border:none}
-.csel-opt:hover{background:rgba(99,102,241,0.15);color:#fff}
-.csel-opt.on{background:rgba(99,102,241,0.2);color:var(--accent2);font-weight:700}
+.btn-mini {
+  background: var(--glass2); border: 1px solid var(--glassBd);
+  color: var(--t1); cursor: pointer; font-family: var(--font);
+  font-size: 11px; border-radius: 8px; padding: 5px 12px;
+}
+.btn-action {
+  width: 100%; padding: 12px; border-radius: var(--rs);
+  font-size: 13px; font-weight: 600; font-family: var(--font);
+  cursor: pointer; transition: all 0.2s; border: 1px solid var(--glassBd);
+  background: var(--glass2); color: var(--t0); text-align: center; display: block;
+}
+.btn-action:hover { background: var(--glass3); }
+.btn-logout {
+  width: 100%; padding: 10px; background: none;
+  border: 1px solid rgba(248,113,113,0.3); color: var(--red);
+  border-radius: var(--rs); font-family: var(--font);
+  font-size: 12px; cursor: pointer; margin-top: 8px;
+}
 
-.btn-run{width:100%;padding:16px;border-radius:var(--r);font-size:16px;font-weight:800;
-  font-family:var(--font);cursor:pointer;border:none;color:#fff;
-  background:linear-gradient(135deg,var(--accent),var(--accent2));
-  box-shadow:0 4px 24px var(--accentG);transition:all .25s}
-.btn-run:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 32px var(--accentG)}
-.btn-run:disabled{opacity:.3;cursor:not-allowed;transform:none}
+/* ── Messages ── */
+.msg {
+  font-size: 12px; margin-top: 10px; text-align: center;
+  min-height: 16px; padding: 8px; border-radius: var(--rs);
+}
+.msg.ok   { background: var(--grnG);    color: var(--grn);     }
+.msg.bad  { background: var(--redG);    color: var(--red);     }
+.msg.busy { background: var(--accentG); color: var(--accent2); }
 
-#progBox{display:none}
-.prog-track{height:4px;background:var(--glass);border-radius:2px;overflow:hidden;margin-bottom:12px}
-.prog-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2),var(--grn));border-radius:2px;
-  width:0%;transition:width .4s;background-size:200% 100%;animation:shimmer 2s infinite linear}
-@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-.prog-msg{font-size:14px;font-weight:600;text-align:center}
-.prog-sub{font-size:11px;color:var(--t2);text-align:center;margin-top:4px}
+/* ── Badges & Chips ── */
+.badge {
+  display: inline-block; padding: 4px 14px; border-radius: 20px;
+  font-size: 11px; font-weight: 600;
+  background: var(--glass2); border: 1px solid var(--glassBd);
+}
+.badge.g    { background: var(--grnG); border-color: rgba(52,211,153,0.3); color: var(--grn); }
+.badge.warn { background: var(--orgG); border-color: rgba(251,191,36,0.3); color: var(--org); }
 
-#resBox{display:none}.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
-.chip{border-radius:20px;padding:4px 12px;font-size:11px;font-weight:600;background:var(--glass2);border:1px solid var(--glassBd);color:var(--t1)}
-.chip.g{border-color:rgba(52,211,153,0.3);color:var(--grn);background:var(--grnG)}
-.chip.b{border-color:rgba(99,102,241,0.3);color:var(--accent2);background:var(--accentG)}
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.chip {
+  border-radius: 20px; padding: 4px 12px;
+  font-size: 11px; font-weight: 600;
+  background: var(--glass2); border: 1px solid var(--glassBd); color: var(--t1);
+}
+.chip.g { border-color: rgba(52,211,153,0.3); color: var(--grn); background: var(--grnG); }
+.chip.b { border-color: rgba(99,102,241,0.3); color: var(--accent2); background: var(--accentG); }
 
-#errBox{display:none;background:var(--redG);border:1px solid rgba(248,113,113,0.3);border-radius:var(--r);padding:16px;text-align:center}
-.err-msg{font-size:12px;color:var(--t1);line-height:1.7;margin-bottom:8px}
-.btn-mini{background:var(--glass2);border:1px solid var(--glassBd);color:var(--t1);cursor:pointer;
-  font-family:var(--font);font-size:11px;border-radius:8px;padding:5px 12px}
+/* ── Options ── */
+.opt-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.opt-label { font-size: 13px; color: var(--t0); font-weight: 500; }
 
-.plan-box{background:linear-gradient(135deg,rgba(99,102,241,0.1),rgba(52,211,153,0.05));
-  border:1px solid rgba(99,102,241,0.2);border-radius:var(--r);padding:16px;text-align:center}
-.plan-name{font-size:18px;font-weight:800;background:linear-gradient(135deg,#f0f0f8,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.usage-bar{height:6px;background:var(--glass);border-radius:3px;overflow:hidden;margin:10px 0 6px}
-.usage-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--grn));border-radius:3px;transition:width .5s}
-.usage-text{display:flex;justify-content:space-between;font-size:11px;color:var(--t2)}
+/* ── Custom Dropdown ── */
+select {
+  background: #1e1e2e; border: 1px solid var(--glassBd2); border-radius: 8px;
+  color: #ffffff; font-family: var(--font); font-size: 13px; padding: 8px 12px;
+  outline: none; font-weight: 600;
+  -webkit-appearance: none; appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: left 10px center;
+  padding-left: 28px; color-scheme: dark;
+}
+select:focus { border-color: var(--accent2); box-shadow: 0 0 0 2px rgba(99,102,241,0.15); }
+select option { background: #1a1a2e; color: #ffffff; padding: 8px; font-weight: 500; }
 
-.btn-action{width:100%;padding:12px;border-radius:var(--rs);font-size:13px;font-weight:600;
-  font-family:var(--font);cursor:pointer;transition:all .2s;border:1px solid var(--glassBd);
-  background:var(--glass2);color:var(--t0);text-align:center;display:block;margin-bottom:6px}
-.btn-action:hover{background:var(--glass3)}
-.btn-logout{width:100%;padding:10px;background:none;border:1px solid rgba(248,113,113,0.3);color:var(--red);
-  border-radius:var(--rs);font-family:var(--font);font-size:12px;cursor:pointer;margin-top:8px}
+.csel { position: relative; min-width: 120px; }
+.csel-btn {
+  background: #1a1a2e; border: 1px solid var(--glassBd2); border-radius: 8px;
+  color: #fff; font-family: var(--font); font-size: 13px;
+  padding: 8px 28px 8px 12px; cursor: pointer; font-weight: 600;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 6px; white-space: nowrap;
+}
+.csel-btn::after {
+  content: "▾"; color: #888; font-size: 10px;
+  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+}
+.csel-btn:hover { border-color: var(--accent2); }
 
-.tabs{display:flex;background:var(--glass);backdrop-filter:var(--blur);border-bottom:1px solid var(--glassBd);flex-shrink:0}
-.tab{flex:1;padding:10px 4px;text-align:center;font-size:12px;color:var(--t2);cursor:pointer;
-  border:none;border-bottom:2px solid transparent;background:none;font-family:var(--font);transition:all .15s}
-.tab:hover{color:var(--t1);background:var(--glass)}
-.tab.on{color:var(--accent2);border-bottom-color:var(--accent2)}
+.csel-list {
+  display: none; position: absolute; top: calc(100% + 4px);
+  right: 0; left: 0; z-index: 999;
+  background: #1a1a2e; border: 1px solid var(--glassBd2);
+  border-radius: 10px; overflow: hidden;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  max-height: 200px; overflow-y: auto;
+}
+.csel-list.open { display: block; }
+.csel-opt {
+  padding: 9px 14px; color: #ccc; font-size: 12px; font-weight: 500;
+  cursor: pointer; transition: background 0.1s;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.csel-opt:last-child { border: none; }
+.csel-opt:hover { background: rgba(99,102,241,0.15); color: #fff; }
+.csel-opt.on { background: rgba(99,102,241,0.2); color: var(--accent2); font-weight: 700; }
 
-.ftr{display:flex;align-items:center;justify-content:space-between;padding:6px 16px;
-  background:var(--glass);border-top:1px solid var(--glassBd);font-size:10px;color:var(--t2);flex-shrink:0}
+/* ── Progress ── */
+#progBox { display: none; }
+.prog-track {
+  height: 4px; background: var(--glass);
+  border-radius: 2px; overflow: hidden; margin-bottom: 12px;
+}
+.prog-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent2), var(--grn));
+  border-radius: 2px; width: 0%; transition: width 0.4s;
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite linear;
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.prog-msg { font-size: 14px; font-weight: 600; text-align: center; }
+.prog-sub { font-size: 11px; color: var(--t2); text-align: center; margin-top: 4px; }
 
-.update-bar{padding:10px 14px;background:linear-gradient(135deg,rgba(99,102,241,0.15),rgba(52,211,153,0.1));
-  border-bottom:1px solid rgba(99,102,241,0.3);font-size:12px;font-weight:600;color:var(--accent2);
-  text-align:center;cursor:pointer;flex-shrink:0;display:none}
-.update-bar:hover{background:linear-gradient(135deg,rgba(99,102,241,0.25),rgba(52,211,153,0.15))}
+/* ── Results ── */
+#resBox { display: none; }
 
-.user-bar{font-size:11px;color:var(--t1);padding:6px 14px;background:var(--glass);border-bottom:1px solid var(--glassBd);
-  display:flex;align-items:center;justify-content:space-between;flex-shrink:0;display:none}
+/* ── Error ── */
+#errBox {
+  display: none; background: var(--redG);
+  border: 1px solid rgba(248,113,113,0.3);
+  border-radius: var(--r); padding: 16px; text-align: center;
+}
+.err-msg { font-size: 12px; color: var(--t1); line-height: 1.7; margin-bottom: 8px; }
+
+/* ── Plan / Account ── */
+.plan-box {
+  background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(52,211,153,0.05));
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: var(--r); padding: 16px; text-align: center;
+}
+.plan-name {
+  font-size: 18px; font-weight: 800;
+  background: linear-gradient(135deg, #f0f0f8, #818cf8);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.usage-bar {
+  height: 6px; background: var(--glass);
+  border-radius: 3px; overflow: hidden; margin: 10px 0 6px;
+}
+.usage-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--grn));
+  border-radius: 3px; transition: width 0.5s;
+}
+.usage-text { display: flex; justify-content: space-between; font-size: 11px; color: var(--t2); }
+
+/* ── Tabs ── */
+.tabs {
+  display: flex; background: var(--glass);
+  backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--glassBd); flex-shrink: 0;
+}
+.tab {
+  flex: 1; padding: 10px 4px; text-align: center; font-size: 12px;
+  color: var(--t2); cursor: pointer; border: none;
+  border-bottom: 2px solid transparent;
+  background: none; font-family: var(--font); transition: all 0.15s;
+}
+.tab:hover { color: var(--t1); background: var(--glass); }
+.tab.on { color: var(--accent2); border-bottom-color: var(--accent2); }
+
+/* ── Footer ── */
+.ftr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 16px; background: var(--glass);
+  border-top: 1px solid var(--glassBd);
+  font-size: 10px; color: var(--t2); flex-shrink: 0;
+}
+
+/* ── Update Bar ── */
+.update-bar {
+  padding: 10px 14px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(52,211,153,0.1));
+  border-bottom: 1px solid rgba(99,102,241,0.3);
+  font-size: 12px; font-weight: 600; color: var(--accent2);
+  text-align: center; cursor: pointer; flex-shrink: 0; display: none;
+}
+.update-bar:hover { background: linear-gradient(135deg, rgba(99,102,241,0.25), rgba(52,211,153,0.15)); }
+
+/* ── User Bar ── */
+.user-bar {
+  font-size: 11px; color: var(--t1); padding: 6px 14px;
+  background: var(--glass); border-bottom: 1px solid var(--glassBd);
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0; display: none;
+}
 </style>
 </head>
 <body>
 
+<!-- ═══════════════════════════════════════════════════════════
+     HTML Structure
+     ═══════════════════════════════════════════════════════════ -->
+
 <div class="update-bar" id="updateBar" onclick="doUpdate()">🔄 גרסה חדשה זמינה — לחץ לעדכון</div>
 
 <div class="hdr">
-  <div class="logo-box"><div class="logo-sq">S</div><div class="logo-t">Sub<span>AI</span></div></div>
+  <div class="logo-box">
+    <div class="logo-sq">S</div>
+    <div class="logo-t">Sub<span>AI</span></div>
+  </div>
   <div class="pill" id="pill">...</div>
 </div>
 
-<div class="user-bar" id="userBar"><span id="userEmail">-</span><span id="quotaMini">-</span></div>
+<div class="user-bar" id="userBar">
+  <span id="userEmail">-</span>
+  <span id="quotaMini">-</span>
+</div>
 
 <div class="tabs" id="tabBar" style="display:none">
   <button class="tab on" data-s="main">🎙 תמלול</button>
@@ -165,6 +355,7 @@ select option{background:#1a1a2e;color:#ffffff;padding:8px;font-weight:500}
 </div>
 
 <div id="screens">
+
   <!-- ONBOARDING -->
   <div class="screen on" id="s-onboard">
     <div class="welcome">
@@ -174,7 +365,12 @@ select option{background:#1a1a2e;color:#ffffff;padding:8px;font-weight:500}
     </div>
     <div class="card" style="text-align:center">
       <button class="btn-google" id="btnGoogle">
-        <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+        <svg width="18" height="18" viewBox="0 0 48 48">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
         התחבר עם Google
       </button>
       <div class="msg" id="loginMsg"></div>
@@ -186,18 +382,23 @@ select option{background:#1a1a2e;color:#ffffff;padding:8px;font-weight:500}
     <div class="card" id="ioCard">
       <div class="card-t">🎯 הגדרות תמלול</div>
       <div id="ioStatus"></div>
-      <div class="opt-row"><span class="opt-label">שפה</span>
+
+      <div class="opt-row">
+        <span class="opt-label">שפה</span>
         <div class="csel" id="cselLang" data-value="he">
           <div class="csel-btn">עברית 🇮🇱</div>
           <div class="csel-list">
             <div class="csel-opt on" data-v="he">עברית 🇮🇱</div>
             <div class="csel-opt" data-v="en">אנגלית 🇺🇸</div>
             <div class="csel-opt" data-v="ar">ערבית 🇸🇦</div>
+            <div class="csel-opt" data-v="ru">רוסית 🇷🇺</div>
             <div class="csel-opt" data-v="auto">אוטומטי 🌍</div>
           </div>
         </div>
       </div>
-      <div class="opt-row"><span class="opt-label">רצועת אודיו</span>
+
+      <div class="opt-row">
+        <span class="opt-label">רצועת אודיו</span>
         <div class="csel" id="cselTrack" data-value="all">
           <div class="csel-btn">כל הרצועות</div>
           <div class="csel-list">
@@ -205,7 +406,9 @@ select option{background:#1a1a2e;color:#ffffff;padding:8px;font-weight:500}
           </div>
         </div>
       </div>
-      <div class="opt-row" style="margin:0"><span class="opt-label">סגנון כתוביות</span>
+
+      <div class="opt-row" style="margin:0">
+        <span class="opt-label">סגנון כתוביות</span>
         <div class="csel" id="cselStyle" data-value="auto">
           <div class="csel-btn">אוטומטי (משפטים)</div>
           <div class="csel-list">
@@ -221,545 +424,1074 @@ select option{background:#1a1a2e;color:#ffffff;padding:8px;font-weight:500}
         </div>
       </div>
     </div>
+
     <button class="btn-run" id="btnRun" disabled>✨ תמלל עם AI</button>
+
     <div class="card" id="progBox">
       <div class="prog-track"><div class="prog-fill" id="pFill"></div></div>
       <div class="prog-msg" id="pMsg">מתחיל...</div>
       <div class="prog-sub" id="pSub"></div>
+      <button class="btn-cancel" id="btnCancel">❌ ביטול</button>
     </div>
+
     <div class="card" id="resBox" style="position:relative">
-      <button class="btn-mini" onclick="$('resBox').style.display='none'" style="position:absolute;top:8px;left:8px;font-size:16px;padding:2px 8px;line-height:1">×</button>
+      <button class="btn-mini" onclick="document.getElementById('resBox').style.display='none'"
+              style="position:absolute;top:8px;left:8px;font-size:16px;padding:2px 8px;line-height:1">×</button>
       <div class="chips" id="rChips"></div>
       <div style="color:var(--grn);text-align:center;font-size:14px">✅ הכתוביות מוכנות!</div>
-      <div id="resSrtPath" style="font-size:10px;color:var(--t2);text-align:center;margin-top:6px;word-break:break-all"></div>
     </div>
-    <div id="errBox"><div style="font-size:22px;margin-bottom:6px">⚠️</div><div class="err-msg" id="errMsg"></div><button class="btn-mini" id="btnErrClose">סגור</button></div>
+
+    <div id="errBox">
+      <div style="font-size:22px;margin-bottom:6px">⚠️</div>
+      <div class="err-msg" id="errMsg"></div>
+      <button class="btn-mini" id="btnErrClose">סגור</button>
+    </div>
   </div>
 
   <!-- ACCOUNT -->
   <div class="screen" id="s-account">
-    <div class="plan-box"><div class="plan-name" id="acPlan">-</div><div style="font-size:11px;color:var(--t2);margin-top:2px" id="acPlanSub"></div></div>
+    <div class="plan-box">
+      <div class="plan-name" id="acPlan">-</div>
+      <div style="font-size:11px;color:var(--t2);margin-top:2px" id="acPlanSub"></div>
+    </div>
     <div class="card">
       <div class="card-t">📊 שימוש</div>
       <div class="usage-bar"><div class="usage-fill" id="usageFill" style="width:0%"></div></div>
       <div class="usage-text"><span id="usageLeft">-</span><span id="usageTotal">-</span></div>
     </div>
-    <button class="btn-action" style="background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none" onclick="buyMinutes()">🛒 קנה עוד דקות</button>
-    <button class="btn-action" onclick="openManage()">🌐 נהל חשבון</button>
+    <button class="btn-action" id="btnManage" onclick="openManage()">🌐 נהל מנוי באתר</button>
     <button class="btn-logout" id="btnLogout">🚪 התנתק</button>
   </div>
 </div>
 
-<div class="ftr"><span>SubAI v4.0</span><span id="ftrSt" style="color:var(--t2)">...</span></div>
+<div class="ftr">
+  <span>SubAI v4.0</span>
+  <span id="ftrSt" style="color:var(--t2)">...</span>
+</div>
 
+<!-- ═══════════════════════════════════════════════════════════
+     JavaScript — Production Build v4.0
+     ═══════════════════════════════════════════════════════════ -->
 <script>
-/* ═══════════════════════════════════════════
-   SubAI v4.0.0 — Premiere Pro CEP Plugin
-   Modal transcription + Vercel backend
-   ═══════════════════════════════════════════ */
-const FS=require('fs'),PATH=require('path'),OS=require('os'),{spawn,exec}=require('child_process');
-const https=require('https'),http=require('http');
-const API_BASE='https://subai-web.vercel.app';
-const PLUGIN_VERSION='4.0.0';
-const EXPORT_TIMEOUT=120000;
-const $=id=>document.getElementById(id);
-const e2=s=>s.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
-const san=s=>s.replace(/[<>:"\/\\|?*\s]/g,'_').substring(0,50);
-const fd=s=>{if(!s||isNaN(s))return '0:00';const m=Math.floor(s/60),sc=Math.floor(s%60);return m+':'+String(sc).padStart(2,'0');};
-function ftr(m){$('ftrSt').textContent=m;}
-function setPill(t){$('pill').textContent=t;}
+'use strict';
 
-// ── CEP Bridge ──
-function evalScript(s,cb){
-  const b=window.__adobe_cep__||window.cep;
-  if(b&&typeof b.evalScript==='function'){try{b.evalScript(s,cb||(()=>{}));return;}catch(e){}}
-  if(typeof window.evalScript==='function'){try{window.evalScript(s,cb||(()=>{}));return;}catch(e){}}
-  if(cb)cb(JSON.stringify({ok:false,e:'CEP not found'}));
-}
-function waitBridge(ms,cb){
-  const t0=Date.now();
-  const check=()=>{
-    const b=window.__adobe_cep__||window.cep;
-    if(b){cb(true);return;}
-    evalScript('1',r=>{if(r==='1'||r===1){cb(true);return;}
-      if(Date.now()-t0<ms)setTimeout(check,350);else cb(false);});
-  };check();
+// ── Node.js Modules ──
+const FS     = require('fs');
+const PATH   = require('path');
+const OS     = require('os');
+const { spawn, exec } = require('child_process');
+const https  = require('https');
+const http   = require('http');
+
+// ── Configuration ──
+const API_BASE       = 'https://subai-web.vercel.app';
+const PLUGIN_VERSION = '4.0.0';
+const EXPORT_TIMEOUT = 120000;   // 2 minutes max for audio export
+const IO_POLL_INTERVAL = 2000;   // In/Out refresh interval
+const LOGIN_POLL_INTERVAL = 2000;
+const LOGIN_POLL_MAX_ATTEMPTS = 90;
+
+// ── DOM Helpers ──
+const $ = (id) => document.getElementById(id);
+
+function escapeForEvalScript(str) {
+    return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
-// ── Auth Storage ──
-function saveAuth(d){try{localStorage.setItem('subai_auth',JSON.stringify(d));}catch(e){}}
-function loadAuth(){try{return JSON.parse(localStorage.getItem('subai_auth')||'null');}catch(e){return null;}}
-function clearAuth(){try{localStorage.removeItem('subai_auth');}catch(e){}}
-
-// ── API Helpers ──
-function apiPost(ep,body){
-  return new Promise((resolve,reject)=>{
-    const data=JSON.stringify(body);
-    const url=new(require('url').URL)(API_BASE+ep);
-    const mod=url.protocol==='https:'?https:http;
-    const req=mod.request({
-      hostname:url.hostname,port:url.port||443,path:url.pathname,method:'POST',
-      headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(data)},timeout:300000
-    },res=>{let buf='';res.on('data',d=>buf+=d);res.on('end',()=>{try{resolve(JSON.parse(buf));}catch(e){reject(new Error('Invalid response'));}});});
-    req.on('error',e=>reject(e));req.on('timeout',()=>{req.destroy();reject(new Error('Timeout'));});
-    req.write(data);req.end();
-  });
-}
-function apiGet(ep){
-  return new Promise((resolve,reject)=>{
-    const url=new(require('url').URL)(API_BASE+ep);
-    const mod=url.protocol==='https:'?https:http;
-    const req=mod.request({hostname:url.hostname,port:url.port||443,path:url.pathname,method:'GET',timeout:10000},
-      res=>{let buf='';res.on('data',d=>buf+=d);res.on('end',()=>{try{resolve(JSON.parse(buf));}catch(e){resolve({});}});});
-    req.on('error',e=>reject(e));req.on('timeout',()=>{req.destroy();reject(new Error('Timeout'));});req.end();
-  });
-}
-function uploadToS3(signedUrl,filePath){
-  return new Promise((resolve,reject)=>{
-    const fileData=FS.readFileSync(filePath);
-    const url=new(require('url').URL)(signedUrl);
-    const mod=url.protocol==='https:'?https:http;
-    const req=mod.request({
-      hostname:url.hostname,port:url.port||(url.protocol==='https:'?443:80),
-      path:url.pathname+url.search,method:'PUT',
-      headers:{'Content-Type':'audio/mpeg','Content-Length':fileData.length},timeout:120000
-    },res=>{let buf='';res.on('data',d=>buf+=d);res.on('end',()=>{
-      if(res.statusCode>=200&&res.statusCode<300)resolve();else reject(new Error('S3: '+res.statusCode));});});
-    req.on('error',e=>reject(e));req.on('timeout',()=>{req.destroy();reject(new Error('Upload timeout'));});
-    req.write(fileData);req.end();
-  });
+function sanitizeFilename(str) {
+    return str.replace(/[<>:"\/\\|?*\s]/g, '_').substring(0, 50);
 }
 
-// ── Custom Dropdowns ──
-document.querySelectorAll('.csel').forEach(csel=>{
-  const btn=csel.querySelector('.csel-btn'),list=csel.querySelector('.csel-list');
-  btn.addEventListener('click',e=>{e.stopPropagation();
-    document.querySelectorAll('.csel-list.open').forEach(l=>{if(l!==list)l.classList.remove('open');});
-    list.classList.toggle('open');});
-  csel.querySelectorAll('.csel-opt').forEach(opt=>{
-    opt.addEventListener('click',e=>{e.stopPropagation();
-      csel.dataset.value=opt.dataset.v;btn.textContent=opt.textContent;
-      csel.querySelectorAll('.csel-opt').forEach(o=>o.classList.remove('on'));opt.classList.add('on');
-      list.classList.remove('open');});
-  });
+function formatDuration(seconds) {
+    if (!seconds || isNaN(seconds)) return '0:00';
+    const m  = Math.floor(seconds / 60);
+    const sc = Math.floor(seconds % 60);
+    return m + ':' + String(sc).padStart(2, '0');
+}
+
+function setFooter(msg) { $('ftrSt').textContent = msg; }
+function setPill(text)  { $('pill').textContent = text;  }
+
+
+// ═══════════════════════════════════════════════════════════════
+// CEP Bridge
+// ═══════════════════════════════════════════════════════════════
+
+function evalScript(script, callback) {
+    const bridge = window.__adobe_cep__ || window.cep;
+    const cb = callback || (() => {});
+
+    if (bridge && typeof bridge.evalScript === 'function') {
+        try { bridge.evalScript(script, cb); return; } catch (e) { /* */ }
+    }
+    if (typeof window.evalScript === 'function') {
+        try { window.evalScript(script, cb); return; } catch (e) { /* */ }
+    }
+    cb(JSON.stringify({ ok: false, e: 'CEP bridge not found' }));
+}
+
+/**
+ * evalScriptAsync — Promise wrapper for evalScript
+ */
+function evalScriptAsync(script) {
+    return new Promise((resolve) => {
+        evalScript(script, (result) => resolve(result));
+    });
+}
+
+function waitBridge(timeoutMs, callback) {
+    const startTime = Date.now();
+
+    function check() {
+        const bridge = window.__adobe_cep__ || window.cep;
+        if (bridge) { callback(true); return; }
+
+        evalScript('1', (result) => {
+            if (result === '1' || result === 1) {
+                callback(true);
+                return;
+            }
+            if (Date.now() - startTime < timeoutMs) {
+                setTimeout(check, 350);
+            } else {
+                callback(false);
+            }
+        });
+    }
+    check();
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Auth & Storage
+// ═══════════════════════════════════════════════════════════════
+
+function saveAuth(data) {
+    try { localStorage.setItem('subai_auth', JSON.stringify(data)); } catch (e) { /* */ }
+}
+function loadAuth() {
+    try { return JSON.parse(localStorage.getItem('subai_auth') || 'null'); } catch (e) { return null; }
+}
+function clearAuth() {
+    try { localStorage.removeItem('subai_auth'); } catch (e) { /* */ }
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Network Layer
+// ═══════════════════════════════════════════════════════════════
+
+function apiPost(endpoint, body) {
+    return new Promise((resolve, reject) => {
+        const data = JSON.stringify(body);
+        const url  = new (require('url').URL)(API_BASE + endpoint);
+        const mod  = url.protocol === 'https:' ? https : http;
+
+        const req = mod.request({
+            hostname: url.hostname,
+            port:     url.port || 443,
+            path:     url.pathname,
+            method:   'POST',
+            headers: {
+                'Content-Type':   'application/json',
+                'Content-Length': Buffer.byteLength(data)
+            },
+            timeout: 300000
+        }, (res) => {
+            let buf = '';
+            res.on('data', (chunk) => buf += chunk);
+            res.on('end', () => {
+                try { resolve(JSON.parse(buf)); }
+                catch (e) { reject(new Error('Invalid server response')); }
+            });
+        });
+
+        req.on('error', (e) => reject(e));
+        req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
+        req.write(data);
+        req.end();
+    });
+}
+
+function apiGet(endpoint) {
+    return new Promise((resolve, reject) => {
+        const url = new (require('url').URL)(API_BASE + endpoint);
+        const mod = url.protocol === 'https:' ? https : http;
+
+        const req = mod.request({
+            hostname: url.hostname,
+            port:     url.port || 443,
+            path:     url.pathname,
+            method:   'GET',
+            timeout:  10000
+        }, (res) => {
+            let buf = '';
+            res.on('data', (chunk) => buf += chunk);
+            res.on('end', () => {
+                try { resolve(JSON.parse(buf)); } catch (e) { resolve({}); }
+            });
+        });
+
+        req.on('error', (e) => reject(e));
+        req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+        req.end();
+    });
+}
+
+function uploadToS3(signedUrl, filePath) {
+    return new Promise((resolve, reject) => {
+        const fileData = FS.readFileSync(filePath);
+        const url = new (require('url').URL)(signedUrl);
+        const mod = url.protocol === 'https:' ? https : http;
+
+        const req = mod.request({
+            hostname: url.hostname,
+            port:     url.port || (url.protocol === 'https:' ? 443 : 80),
+            path:     url.pathname + url.search,
+            method:   'PUT',
+            headers: {
+                'Content-Type':   'audio/mpeg',
+                'Content-Length': fileData.length
+            },
+            timeout: 120000
+        }, (res) => {
+            let buf = '';
+            res.on('data', (chunk) => buf += chunk);
+            res.on('end', () => {
+                if (res.statusCode >= 200 && res.statusCode < 300) resolve();
+                else reject(new Error('S3 upload failed: HTTP ' + res.statusCode));
+            });
+        });
+
+        req.on('error', (e) => reject(e));
+        req.on('timeout', () => { req.destroy(); reject(new Error('Upload timeout')); });
+        req.write(fileData);
+        req.end();
+    });
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Custom Dropdown Component
+// ═══════════════════════════════════════════════════════════════
+
+document.querySelectorAll('.csel').forEach((csel) => {
+    const btn  = csel.querySelector('.csel-btn');
+    const list = csel.querySelector('.csel-list');
+
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Close all other dropdowns
+        document.querySelectorAll('.csel-list.open').forEach((l) => {
+            if (l !== list) l.classList.remove('open');
+        });
+        list.classList.toggle('open');
+    });
+
+    csel.querySelectorAll('.csel-opt').forEach((opt) => {
+        opt.addEventListener('click', (e) => {
+            e.stopPropagation();
+            csel.dataset.value = opt.dataset.v;
+            btn.textContent = opt.textContent;
+            csel.querySelectorAll('.csel-opt').forEach((o) => o.classList.remove('on'));
+            opt.classList.add('on');
+            list.classList.remove('open');
+        });
+    });
 });
-document.addEventListener('click',()=>{document.querySelectorAll('.csel-list.open').forEach(l=>l.classList.remove('open'));});
-function cselVal(id){return $(id).dataset.value||'';}
-function cselSet(id,val,label){const el=$(id);el.dataset.value=val;el.querySelector('.csel-btn').textContent=label;
-  el.querySelectorAll('.csel-opt').forEach(o=>{o.classList.toggle('on',o.dataset.v===val);});}
 
-// ── Tabs ──
-document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
-  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
-  document.querySelectorAll('.screen').forEach(x=>x.classList.remove('on'));
-  t.classList.add('on');$('s-'+t.dataset.s).classList.add('on');
-  if(t.dataset.s==='account')refreshAccount();
-}));
-function showScreen(id){document.querySelectorAll('.screen').forEach(x=>x.classList.remove('on'));$(id).classList.add('on');}
+document.addEventListener('click', () => {
+    document.querySelectorAll('.csel-list.open').forEach((l) => l.classList.remove('open'));
+});
 
-let SEQ=null,USER=null,RUNNING=false,API_KEY=null;
+function cselVal(id) { return $(id).dataset.value || ''; }
 
-// ═══════════════════════════════════════════
+function cselSet(id, val, label) {
+    const el = $(id);
+    el.dataset.value = val;
+    el.querySelector('.csel-btn').textContent = label;
+    el.querySelectorAll('.csel-opt').forEach((o) => {
+        o.classList.toggle('on', o.dataset.v === val);
+    });
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Tab Navigation
+// ═══════════════════════════════════════════════════════════════
+
+document.querySelectorAll('.tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach((t) => t.classList.remove('on'));
+        document.querySelectorAll('.screen').forEach((s) => s.classList.remove('on'));
+        tab.classList.add('on');
+        $('s-' + tab.dataset.s).classList.add('on');
+        if (tab.dataset.s === 'account') refreshAccount();
+    });
+});
+
+function showScreen(id) {
+    document.querySelectorAll('.screen').forEach((s) => s.classList.remove('on'));
+    $(id).classList.add('on');
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Application State
+// ═══════════════════════════════════════════════════════════════
+
+let SEQ     = null;    // Current sequence metadata
+let USER    = null;    // Logged-in user info
+let RUNNING = false;   // Transcription in progress
+let CANCEL  = false;   // Cancellation requested
+let API_KEY = null;    // Auth key
+
+let _pollTimer = null; // Login poll timer
+let _seqTimer  = null; // Sequence load retry timer
+let _ioTimer   = null; // In/Out polling timer
+
+
+// ═══════════════════════════════════════════════════════════════
 // Google Login
-// ═══════════════════════════════════════════
-let _pollTimer=null;
-$('btnGoogle').onclick=()=>{
-  const sid='ps_'+Date.now()+'_'+Math.random().toString(36).substring(2,10);
-  const url=API_BASE+'/auth?plugin_session='+sid;
-  try{exec('start "" "'+url+'"');}catch(e){try{exec('open "'+url+'"');}catch(e2){}}
-  $('loginMsg').textContent='ממתין להתחברות בדפדפן...';$('loginMsg').className='msg busy';$('btnGoogle').disabled=true;
-  let attempts=0;clearInterval(_pollTimer);
-  _pollTimer=setInterval(async()=>{attempts++;
-    if(attempts>90){clearInterval(_pollTimer);$('loginMsg').textContent='פג תוקף — נסה שוב';$('loginMsg').className='msg bad';$('btnGoogle').disabled=false;return;}
-    try{const r=await apiPost('/api/auth/plugin-session',{action:'check',session_id:sid});
-      if(r.ok&&r.status==='ready'&&r.api_key){clearInterval(_pollTimer);API_KEY=r.api_key;USER=r.user;saveAuth({api_key:r.api_key,user:USER});enterApp();}}catch(e){}
-  },2000);
+// ═══════════════════════════════════════════════════════════════
+
+$('btnGoogle').onclick = () => {
+    const sessionId = 'ps_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+    const loginUrl  = API_BASE + '/auth?plugin_session=' + sessionId;
+
+    // Open browser
+    try { exec('start "" "' + loginUrl + '"'); }
+    catch (e) { try { exec('open "' + loginUrl + '"'); } catch (e2) { /* */ } }
+
+    $('loginMsg').textContent = 'ממתין להתחברות בדפדפן...';
+    $('loginMsg').className = 'msg busy';
+    $('btnGoogle').disabled = true;
+
+    let attempts = 0;
+    clearInterval(_pollTimer);
+
+    _pollTimer = setInterval(async () => {
+        attempts++;
+
+        if (attempts > LOGIN_POLL_MAX_ATTEMPTS) {
+            clearInterval(_pollTimer);
+            $('loginMsg').textContent = 'פג תוקף — נסה שוב';
+            $('loginMsg').className = 'msg bad';
+            $('btnGoogle').disabled = false;
+            return;
+        }
+
+        try {
+            const result = await apiPost('/api/auth/plugin-session', {
+                action: 'check',
+                session_id: sessionId
+            });
+
+            if (result.ok && result.status === 'ready' && result.api_key) {
+                clearInterval(_pollTimer);
+                API_KEY = result.api_key;
+                USER = result.user;
+                saveAuth({ api_key: result.api_key, user: USER });
+                enterApp();
+            }
+        } catch (e) { /* continue polling */ }
+    }, LOGIN_POLL_INTERVAL);
 };
 
-function enterApp(){
-  $('tabBar').style.display='flex';$('userBar').style.display='flex';
-  $('userEmail').textContent=USER.email||'';
-  showScreen('s-main');document.querySelector('[data-s="main"]').classList.add('on');
-  setPill('מוכן ✓');ftr('מוכן');
-  updateQuotaMini();loadSeq();startInOutRefresh();checkForUpdate();
-}
 
-// ═══════════════════════════════════════════
-// Sequence & In/Out — fast polling (0.5s)
-// ═══════════════════════════════════════════
-let _seqTimer=null;
-function loadSeq(retries){
-  if(retries===undefined)retries=8;
-  clearTimeout(_seqTimer);ftr('טוען רצף...');
-  evalScript('getSeq()',raw=>{
-    if(!raw||raw.includes('CEP')){if(retries>0)_seqTimer=setTimeout(()=>loadSeq(retries-1),1000);return;}
-    let info;try{info=JSON.parse(raw);}catch(e){if(retries>0)_seqTimer=setTimeout(()=>loadSeq(retries-1),800);return;}
-    if(!info.ok){ftr('פתח רצף');if(retries>0)_seqTimer=setTimeout(()=>loadSeq(retries-1),3000);return;}
-    SEQ=info;updateSeqUI();loadAudioTracks();updateRunButton();ftr('מוכן');
-  });
-}
+// ═══════════════════════════════════════════════════════════════
+// App Entry / Session
+// ═══════════════════════════════════════════════════════════════
 
-function updateSeqUI(){
-  if(!SEQ)return;
-  if(SEQ.hasWA){
-    $('ioStatus').innerHTML='<div class="badge g" style="margin-bottom:8px;cursor:pointer" onclick="loadSeq()">✓ In/Out: '+fd(SEQ.i)+' → '+fd(SEQ.o)+' ('+fd(SEQ.o-SEQ.i)+') 🔄</div>';
-  }else{
-    $('ioStatus').innerHTML='<div class="badge warn" style="margin-bottom:8px;cursor:pointer" onclick="loadSeq()">⚠️ סמן In/Out בטיימליין (לחץ לרענון 🔄)</div>';
-  }
-  updateRunButton();
-}
-
-function updateRunButton(){
-  const ok=SEQ&&SEQ.hasWA;
-  $('btnRun').disabled=!ok||RUNNING;
-  $('btnRun').textContent=!ok&&SEQ?'⚠️ סמן In/Out קודם':'✨ תמלל עם AI';
-  $('btnRun').style.opacity=!ok&&SEQ?'0.4':'';
-}
-
-let _ioTimer=null;
-function startInOutRefresh(){
-  clearInterval(_ioTimer);
-  _ioTimer=setInterval(()=>{
-    if(RUNNING||!SEQ)return;
-    evalScript('getInOut()',raw=>{
-      try{
-        const d=JSON.parse(raw);if(!d.ok)return;
-        // Use threshold comparison to avoid float precision issues
-        if(Math.abs(d.i-SEQ.i)>0.01||Math.abs(d.o-SEQ.o)>0.01||d.hasWA!==SEQ.hasWA){
-          SEQ.i=d.i;SEQ.o=d.o;SEQ.hasWA=d.hasWA;SEQ.dur=d.dur;
-          updateSeqUI();
-        }
-      }catch(e){}
-    });
-  },500); // Poll every 0.5s for near-realtime response
-}
-
-// ── Audio Tracks ──
-function loadAudioTracks(){
-  evalScript('getAudioTracks()',raw=>{
-    try{
-      const d=JSON.parse(raw);if(!d.ok||!d.tracks)return;
-      const list=$('cselTrack').querySelector('.csel-list');
-      list.innerHTML='<div class="csel-opt on" data-v="all">כל הרצועות</div>';
-      d.tracks.forEach(t=>{
-        const opt=document.createElement('div');opt.className='csel-opt';opt.dataset.v=String(t.index);opt.textContent=t.name;
-        opt.addEventListener('click',e=>{e.stopPropagation();
-          $('cselTrack').dataset.value=String(t.index);
-          $('cselTrack').querySelector('.csel-btn').textContent=t.name;
-          list.querySelectorAll('.csel-opt').forEach(o=>o.classList.remove('on'));opt.classList.add('on');
-          list.classList.remove('open');});
-        list.appendChild(opt);
-      });
-    }catch(e){}
-  });
-}
-
-let _savedMutes=null;
-function soloTrackBefore(cb){
-  const sel=cselVal('cselTrack');
-  if(sel==='all'){_savedMutes=null;cb();return;}
-  evalScript('soloAudioTrack('+parseInt(sel)+')',raw=>{
-    try{const d=JSON.parse(raw);if(d.ok)_savedMutes=JSON.stringify(d.originalStates);}catch(e){}cb();
-  });
-}
-function restoreTracksAfter(){
-  if(!_savedMutes)return;
-  evalScript("restoreTrackMutes('"+_savedMutes.replace(/'/g,"\\'")+"')",()=>{});
-  _savedMutes=null;
-}
-
-// ── Quota ──
-function updateQuotaMini(){
-  if(!USER)return;
-  $('quotaMini').textContent=Math.max(0,USER.remaining||0).toFixed(0)+' דק׳';
-}
-
-// ── Account ──
-async function refreshAccount(){
-  if(!API_KEY)return;
-  try{
-    const r=await apiPost('/api/transcribe',{api_key:API_KEY,action:'status'});
-    if(!r.error){USER.plan=r.plan;USER.used=r.minutes_used;USER.limit=r.minutes_limit;USER.remaining=r.minutes_remaining;}
-  }catch(e){}
-  if(!USER)return;
-  const names={free:'חינמי',pro:'פרו ⭐',studio:'סטודיו 💎'};
-  $('acPlan').textContent=names[USER.plan]||USER.plan;
-  $('acPlanSub').textContent=USER.plan==='free'?'10 דקות מתנה':Math.max(0,(USER.remaining||0)).toFixed(0)+' דקות נותרו';
-  const pct=USER.limit>0?Math.min(100,((USER.used||0)/USER.limit)*100):0;
-  $('usageFill').style.width=pct+'%';
-  $('usageLeft').textContent=Math.max(0,(USER.remaining||0)).toFixed(1)+' דקות נותרו';
-  $('usageTotal').textContent=(USER.used||0).toFixed(1)+' / '+(USER.limit||0);
-  updateQuotaMini();
-}
-
-function openManage(){try{exec('start "" "'+API_BASE+'/dashboard"');}catch(e){try{exec('open "'+API_BASE+'/dashboard"');}catch(e2){}}}
-function buyMinutes(){try{exec('start "" "'+API_BASE+'/dashboard#buy"');}catch(e){try{exec('open "'+API_BASE+'/dashboard#buy"');}catch(e2){}}}
-
-// ═══════════════════════════════════════════
-// Auto-Update — downloads new files directly
-// ═══════════════════════════════════════════
-async function checkForUpdate(){
-  try{
-    const r=await apiGet('/api/plugin-version');
-    if(r.version&&r.version!==PLUGIN_VERSION){
-      $('updateBar').style.display='block';
-      $('updateBar').textContent='🔄 גרסה '+r.version+' זמינה — לחץ לעדכון אוטומטי';
-    }
-  }catch(e){}
-}
-
-async function doUpdate(){
-  $('updateBar').textContent='⬇ מעדכן...';$('updateBar').style.pointerEvents='none';
-  const extDir=PATH.join(process.env.APPDATA||'','Adobe','CEP','extensions','com.subai.cloud.panel');
-  try{
-    // Download new index.html
-    const idx=await new Promise((resolve,reject)=>{
-      const url=new(require('url').URL)(API_BASE+'/api/plugin-files?file=index.html');
-      https.get(url,res=>{let buf='';res.on('data',d=>buf+=d);res.on('end',()=>resolve(buf));}).on('error',reject);
-    });
-    if(idx&&idx.length>1000){
-      FS.writeFileSync(PATH.join(extDir,'index.html'),idx,'utf8');
-    }
-
-    // Download new host.jsx
-    const jsx=await new Promise((resolve,reject)=>{
-      const url=new(require('url').URL)(API_BASE+'/api/plugin-files?file=host.jsx');
-      https.get(url,res=>{let buf='';res.on('data',d=>buf+=d);res.on('end',()=>resolve(buf));}).on('error',reject);
-    });
-    if(jsx&&jsx.length>500){
-      FS.mkdirSync(PATH.join(extDir,'jsx'),{recursive:true});
-      FS.writeFileSync(PATH.join(extDir,'jsx','host.jsx'),jsx,'utf8');
-    }
-
-    $('updateBar').textContent='✅ עודכן! סגור ופתח מחדש את Premiere Pro';
-    $('updateBar').style.background='linear-gradient(135deg,rgba(52,211,153,0.2),rgba(52,211,153,0.1))';
-    $('updateBar').style.color='#34d399';
-  }catch(e){
-    $('updateBar').textContent='❌ עדכון נכשל — '+e.message;
-    $('updateBar').style.pointerEvents='auto';
-  }
-}
-
-// ═══════════════════════════════════════════
-// Main Workflow — Export → Transcribe → Place
-// ═══════════════════════════════════════════
-function setP(pct,msg,sub){$('pFill').style.width=pct+'%';$('pMsg').textContent=msg;$('pSub').textContent=sub||'';}
-function showErr(msg){$('errMsg').textContent=msg;$('errBox').style.display='block';ftr('שגיאה');}
-function finish(ok,msg){RUNNING=false;updateRunButton();$('progBox').style.display='none';if(!ok)showErr(msg);}
-
-// Helper: get project folder path from host.jsx
-function getProjectDir(){
-  return new Promise(resolve=>{
-    evalScript('getProjectPath()',raw=>{
-      try{
-        const d=JSON.parse(raw);
-        if(d.ok&&d.path&&FS.existsSync(d.path)){resolve(d.path);return;}
-      }catch(e){}
-      resolve(OS.tmpdir()); // Fallback to temp
-    });
-  });
-}
-
-async function runAll(){
-  if(RUNNING)return;
-  if(!SEQ||!SEQ.hasWA){showErr('סמן In/Out בטיימליין.');return;}
-  if(!API_KEY){showErr('התחבר תחילה.');return;}
-
-  RUNNING=true;updateRunButton();
-  $('resBox').style.display='none';$('errBox').style.display='none';$('progBox').style.display='block';
-  $('resSrtPath').textContent='';
-
-  const lang=cselVal('cselLang'),style=cselVal('cselStyle');
-  const wordsPerGroup=parseInt(style.replace('word',''))||1;
-  const inSec=SEQ.i,outSec=SEQ.o,clipDur=outSec-inSec;
-  if(clipDur<0.5){finish(false,'הקטע קצר מדי.');return;}
-
-  const tmp=OS.tmpdir();
-  const wavPath=PATH.join(tmp,'subai_'+Date.now()+'.wav');
-  const mp3Path=wavPath.replace('.wav','.mp3');
-
-  // ── Step 1: Solo track if needed ──
-  setP(3,'מכין אודיו...','');
-  await new Promise(r=>soloTrackBefore(r));
-
-  // ── Step 2: Export audio from Premiere ──
-  setP(5,'מייצא אודיו...','');
-  const expRaw=await new Promise(r=>evalScript('exportAudio("'+e2(wavPath)+'","",false)',r));
-  let expData;
-  try{expData=JSON.parse(expRaw);}catch(e){restoreTracksAfter();finish(false,'שגיאת ייצוא.');return;}
-  if(!expData.ok){restoreTracksAfter();finish(false,'ייצוא נכשל: '+(expData.e||''));return;}
-
-  // Wait for file (AME async export)
-  const isAME=expData.async===true;
-  let waited=0,lastSz=0,stable=0;
-  while(waited<EXPORT_TIMEOUT){
-    if(!RUNNING){restoreTracksAfter();finish(false,'בוטל.');return;}
-    const ex=FS.existsSync(wavPath),sz=ex?FS.statSync(wavPath).size:0;
-    if(ex&&sz>1000){
-      if(isAME){if(sz===lastSz){stable+=500;if(stable>=1500)break;}else stable=0;}
-      else break;
-    }
-    lastSz=sz;await new Promise(r=>setTimeout(r,500));waited+=500;
-  }
-  if(!FS.existsSync(wavPath)||FS.statSync(wavPath).size<500){restoreTracksAfter();finish(false,'ייצוא לא הושלם.');return;}
-  restoreTracksAfter();
-
-  // ── Step 3: Trim audio to In/Out range ──
-  setP(12,'חותך לפי In/Out...','');
-  let audioSrc=wavPath;
-  if(inSec>0){
-    const trimPath=wavPath.replace('.wav','_trim.wav');
-    await new Promise(r=>{
-      const p=spawn('ffmpeg',['-y','-i',wavPath,'-ss',String(inSec),'-t',String(clipDur),'-acodec','copy',trimPath],{stdio:['pipe','pipe','pipe']});
-      p.on('close',code=>{
-        if(code===0&&FS.existsSync(trimPath)&&FS.statSync(trimPath).size>200){
-          try{FS.unlinkSync(wavPath);}catch(_){}
-          audioSrc=trimPath;
-        }
-        r();
-      });
-      p.on('error',()=>r());
-    });
-  }
-
-  // ── Step 4: Convert to MP3 ──
-  setP(16,'ממיר...','');
-  let audioFile=audioSrc;
-  await new Promise(r=>{
-    const p=spawn('ffmpeg',['-y','-i',audioSrc,'-ar','16000','-ac','1','-b:a','64k',mp3Path],{stdio:['pipe','pipe','pipe']});
-    p.on('close',code=>{
-      if(code===0&&FS.existsSync(mp3Path)&&FS.statSync(mp3Path).size>200){
-        audioFile=mp3Path;try{FS.unlinkSync(audioSrc);}catch(_){}
-      }
-      r();
-    });
-    p.on('error',()=>r());
-  });
-
-  // ── Step 5: Get upload URL ──
-  setP(22,'מתחבר...','');
-  let uploadData;
-  try{uploadData=await apiPost('/api/transcribe',{api_key:API_KEY,action:'get_upload_url'});}
-  catch(e){finish(false,'שגיאת חיבור.');try{FS.unlinkSync(audioFile);}catch(_){}return;}
-  if(uploadData.error){finish(false,uploadData.message||'שגיאה');try{FS.unlinkSync(audioFile);}catch(_){}return;}
-
-  // ── Step 6: Upload to S3 ──
-  setP(32,'מעלה...','');
-  try{await uploadToS3(uploadData.upload_url,audioFile);}
-  catch(e){finish(false,'העלאה: '+e.message);try{FS.unlinkSync(audioFile);}catch(_){}return;}
-  try{FS.unlinkSync(audioFile);}catch(_){}
-
-  // ── Step 7: Transcribe via Modal ──
-  setP(45,'מתמלל...','זה יכול לקחת דקה-שתיים');
-  let result;
-  try{
-    result=await apiPost('/api/transcribe',{
-      api_key:API_KEY,action:'transcribe',
-      download_url:uploadData.download_url,file_key:uploadData.file_key,
-      lang,model:'large-v3',
-      offset:inSec,audio_duration:clipDur,
-      caption_style:style,words_per_group:wordsPerGroup
-    });
-  }catch(e){finish(false,'שגיאת תמלול: '+e.message);return;}
-  if(result.error){finish(false,result.message||'שגיאת תמלול');return;}
-  if(!result.segments||result.segments.length===0){finish(false,'לא נמצא דיבור.');return;}
-
-  const srt=result.srt||'';
-  const segments=result.segments||[];
-  if(!srt.trim()&&segments.length===0){finish(false,'לא נמצא דיבור.');return;}
-  const cnt=result.count||segments.length;
-
-  // ── Step 8: Save SRT to project folder ──
-  setP(82,'שומר SRT...','');
-  let projectDir=await getProjectDir();
-  const srtFileName=san(SEQ.name)+'_SubAI.srt';
-  let srtPath=PATH.join(projectDir,srtFileName);
-
-  // If project dir is read-only or fails, fallback to temp
-  try{
-    FS.writeFileSync(srtPath,srt,'utf8');
-  }catch(e){
-    srtPath=PATH.join(tmp,srtFileName);
-    try{FS.writeFileSync(srtPath,srt,'utf8');}catch(e2){}
-  }
-
-  // ── Step 9: Place captions on timeline ──
-  setP(88,'מציב כתוביות...','');
-  const extPath=PATH.join(process.env.APPDATA||'','Adobe','CEP','extensions','com.subai.cloud.panel').replace(/\\/g,'/');
-
-  // Offset segments back to timeline position
-  const segs=segments.map(s=>({
-    start:s.start+(parseFloat(inSec)||0),
-    end:s.end+(parseFloat(inSec)||0),
-    text:s.text
-  }));
-  const segsJson=JSON.stringify(segs).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-  const placeRaw=await new Promise(r=>evalScript("placeCaptions('"+segsJson+"','"+extPath.replace(/\\/g,'\\\\').replace(/'/g,"\\'")+"',-1)",r));
-
-  let placeResult;
-  try{placeResult=JSON.parse(placeRaw);}catch(_){placeResult={ok:false};}
-
-  // If placeCaptions failed or returned srt_project, try importSRT
-  if(!placeResult.ok||placeResult.method==='srt_project'){
-    await new Promise(r=>evalScript('importSRT("'+e2(srtPath)+'",'+inSec+')',r));
-  }
-
-  // ── Done ──
-  setP(100,'✅ הושלם!','');
-  await new Promise(r=>setTimeout(r,600));
-  $('progBox').style.display='none';
-
-  // Update remaining minutes
-  if(result.minutes_remaining!==undefined){
-    USER.remaining=result.minutes_remaining;
-    USER.used=(USER.limit||0)-result.minutes_remaining;
+function enterApp() {
+    $('tabBar').style.display = 'flex';
+    $('userBar').style.display = 'flex';
+    $('userEmail').textContent = USER.email || '';
+    showScreen('s-main');
+    document.querySelector('[data-s="main"]').classList.add('on');
+    setPill('מוכן ✓');
+    setFooter('מוכן');
     updateQuotaMini();
-  }
-
-  // Show result chips
-  $('rChips').innerHTML=
-    '<span class="chip g">✅ '+cnt+' כתוביות</span>'+
-    '<span class="chip b">⚡ '+(result.elapsed||'—')+'s</span>'+
-    (result.minutes_charged?'<span class="chip b">📊 '+result.minutes_charged+' דק׳</span>':'');
-  $('resSrtPath').textContent='📁 '+srtPath;
-  $('resBox').style.display='block';
-  setTimeout(()=>{$('resBox').style.display='none';},8000);
-  ftr('✓ '+cnt+' כתוביות!');
-  RUNNING=false;updateRunButton();
+    loadSeq();
+    startInOutRefresh();
+    checkForUpdate();
 }
 
-// ── Button Handlers ──
-$('btnRun').onclick=runAll;
-$('btnErrClose').onclick=()=>{$('errBox').style.display='none';};
-$('btnLogout').onclick=()=>{
-  clearAuth();API_KEY=null;USER=null;SEQ=null;
-  $('tabBar').style.display='none';$('userBar').style.display='none';$('updateBar').style.display='none';
-  showScreen('s-onboard');$('loginMsg').textContent='';$('btnGoogle').disabled=false;
-  setPill('');ftr('');clearInterval(_ioTimer);clearInterval(_pollTimer);
+function updateQuotaMini() {
+    if (!USER) return;
+    $('quotaMini').textContent = Math.max(0, USER.remaining || 0).toFixed(0) + ' דק׳';
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Sequence Management
+// ═══════════════════════════════════════════════════════════════
+
+function loadSeq(retries) {
+    if (retries === undefined) retries = 8;
+    clearTimeout(_seqTimer);
+    setFooter('טוען רצף...');
+
+    evalScript('getSeq()', (raw) => {
+        if (!raw || raw.includes('CEP')) {
+            if (retries > 0) _seqTimer = setTimeout(() => loadSeq(retries - 1), 1000);
+            return;
+        }
+
+        let info;
+        try { info = JSON.parse(raw); }
+        catch (e) {
+            if (retries > 0) _seqTimer = setTimeout(() => loadSeq(retries - 1), 800);
+            return;
+        }
+
+        if (!info.ok) {
+            setFooter('פתח רצף');
+            if (retries > 0) _seqTimer = setTimeout(() => loadSeq(retries - 1), 3000);
+            return;
+        }
+
+        SEQ = info;
+        updateSeqUI();
+        loadAudioTracks();
+        updateRunButton();
+        setFooter('מוכן');
+    });
+}
+
+function updateSeqUI() {
+    if (!SEQ) return;
+
+    if (SEQ.hasWA) {
+        $('ioStatus').innerHTML =
+            '<div class="badge g" style="margin-bottom:8px">' +
+            '✓ In/Out: ' + formatDuration(SEQ.i) + ' → ' + formatDuration(SEQ.o) +
+            ' (' + formatDuration(SEQ.o - SEQ.i) + ')' +
+            '</div>';
+    } else {
+        $('ioStatus').innerHTML =
+            '<div class="badge warn" style="margin-bottom:8px">⚠️ סמן In/Out בטיימליין</div>';
+    }
+    updateRunButton();
+}
+
+function updateRunButton() {
+    const ready = SEQ && SEQ.hasWA;
+    $('btnRun').disabled = !ready || RUNNING;
+
+    if (!ready && SEQ) {
+        $('btnRun').textContent = '⚠️ סמן In/Out קודם';
+        $('btnRun').style.opacity = '0.4';
+    } else {
+        $('btnRun').textContent = '✨ תמלל עם AI';
+        $('btnRun').style.opacity = '';
+    }
+}
+
+function startInOutRefresh() {
+    clearInterval(_ioTimer);
+    _ioTimer = setInterval(() => {
+        if (RUNNING || !SEQ) return;
+
+        evalScript('getInOut()', (raw) => {
+            try {
+                const data = JSON.parse(raw);
+                if (!data.ok) return;
+
+                if (data.i !== SEQ.i || data.o !== SEQ.o || data.hasWA !== SEQ.hasWA) {
+                    SEQ.i = data.i;
+                    SEQ.o = data.o;
+                    SEQ.hasWA = data.hasWA;
+                    SEQ.dur = data.dur;
+                    updateSeqUI();
+                }
+            } catch (e) { /* */ }
+        });
+    }, IO_POLL_INTERVAL);
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Audio Track Management
+// ═══════════════════════════════════════════════════════════════
+
+function loadAudioTracks() {
+    evalScript('getAudioTracks()', (raw) => {
+        try {
+            const data = JSON.parse(raw);
+            if (!data.ok || !data.tracks) return;
+
+            const list = $('cselTrack').querySelector('.csel-list');
+            list.innerHTML = '<div class="csel-opt on" data-v="all">כל הרצועות</div>';
+
+            data.tracks.forEach((track) => {
+                const opt = document.createElement('div');
+                opt.className = 'csel-opt';
+                opt.dataset.v = String(track.index);
+                opt.textContent = track.name;
+
+                opt.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    $('cselTrack').dataset.value = String(track.index);
+                    $('cselTrack').querySelector('.csel-btn').textContent = track.name;
+                    list.querySelectorAll('.csel-opt').forEach((o) => o.classList.remove('on'));
+                    opt.classList.add('on');
+                    list.classList.remove('open');
+                });
+
+                list.appendChild(opt);
+            });
+        } catch (e) { /* */ }
+    });
+}
+
+let _savedMuteStates = null;
+
+function soloTrackBefore() {
+    return new Promise((resolve) => {
+        const selectedTrack = cselVal('cselTrack');
+        if (selectedTrack === 'all') {
+            _savedMuteStates = null;
+            resolve();
+            return;
+        }
+
+        evalScript(`soloAudioTrack(${parseInt(selectedTrack)})`, (raw) => {
+            try {
+                const data = JSON.parse(raw);
+                if (data.ok) {
+                    _savedMuteStates = JSON.stringify(data.originalStates);
+                }
+            } catch (e) { /* */ }
+            resolve();
+        });
+    });
+}
+
+function restoreTracksAfter() {
+    if (!_savedMuteStates) return;
+    const escaped = _savedMuteStates.replace(/'/g, "\\'");
+    evalScript(`restoreTrackMutes('${escaped}')`, () => {});
+    _savedMuteStates = null;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Account Management
+// ═══════════════════════════════════════════════════════════════
+
+async function refreshAccount() {
+    if (!API_KEY) return;
+
+    try {
+        const result = await apiPost('/api/transcribe', { api_key: API_KEY, action: 'status' });
+        if (!result.error) {
+            USER.plan      = result.plan;
+            USER.used      = result.minutes_used;
+            USER.limit     = result.minutes_limit;
+            USER.remaining = result.minutes_remaining;
+        }
+    } catch (e) { /* */ }
+
+    if (!USER) return;
+
+    const planNames = { free: 'חינמי', pro: 'פרו ⭐', studio: 'סטודיו 💎' };
+    $('acPlan').textContent = planNames[USER.plan] || USER.plan;
+    $('acPlanSub').textContent = USER.plan === 'free' ? '10 דקות מתנה' : USER.limit + ' דקות לחודש';
+
+    const usagePercent = USER.limit > 0
+        ? Math.min(100, ((USER.used || 0) / USER.limit) * 100)
+        : 0;
+    $('usageFill').style.width = usagePercent + '%';
+    $('usageLeft').textContent = Math.max(0, (USER.remaining || 0)).toFixed(1) + ' דקות נותרו';
+    $('usageTotal').textContent = (USER.used || 0).toFixed(1) + ' / ' + (USER.limit || 0);
+    updateQuotaMini();
+}
+
+function openManage() {
+    try { exec('start "" "' + API_BASE + '/dashboard"'); }
+    catch (e) { try { exec('open "' + API_BASE + '/dashboard"'); } catch (e2) { /* */ } }
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Auto-Update
+// ═══════════════════════════════════════════════════════════════
+
+async function checkForUpdate() {
+    try {
+        const result = await apiGet('/api/plugin-version');
+        if (result.version && result.version !== PLUGIN_VERSION) {
+            $('updateBar').style.display = 'block';
+            $('updateBar').textContent = `🔄 גרסה ${result.version} זמינה — לחץ לעדכון אוטומטי`;
+        }
+    } catch (e) { /* */ }
+}
+
+async function doUpdate() {
+    $('updateBar').textContent = '⬇ מעדכן...';
+    $('updateBar').style.pointerEvents = 'none';
+
+    const extDir = PATH.join(
+        process.env.APPDATA || '',
+        'Adobe', 'CEP', 'extensions', 'com.subai.cloud.panel'
+    );
+
+    try {
+        // Download new index.html
+        const indexContent = await new Promise((resolve, reject) => {
+            const url = new (require('url').URL)(API_BASE + '/api/plugin-files?file=index.html');
+            https.get(url, (res) => {
+                let buf = '';
+                res.on('data', (d) => buf += d);
+                res.on('end', () => resolve(buf));
+            }).on('error', reject);
+        });
+
+        if (indexContent && indexContent.length > 1000) {
+            FS.writeFileSync(PATH.join(extDir, 'index.html'), indexContent, 'utf8');
+        }
+
+        // Download new host.jsx
+        const jsxContent = await new Promise((resolve, reject) => {
+            const url = new (require('url').URL)(API_BASE + '/api/plugin-files?file=host.jsx');
+            https.get(url, (res) => {
+                let buf = '';
+                res.on('data', (d) => buf += d);
+                res.on('end', () => resolve(buf));
+            }).on('error', reject);
+        });
+
+        if (jsxContent && jsxContent.length > 500) {
+            FS.mkdirSync(PATH.join(extDir, 'jsx'), { recursive: true });
+            FS.writeFileSync(PATH.join(extDir, 'jsx', 'host.jsx'), jsxContent, 'utf8');
+        }
+
+        $('updateBar').textContent = '✅ עודכן! סגור ופתח מחדש את Premiere Pro';
+        $('updateBar').style.background = 'linear-gradient(135deg, rgba(52,211,153,0.2), rgba(52,211,153,0.1))';
+        $('updateBar').style.color = '#34d399';
+    } catch (e) {
+        $('updateBar').textContent = '❌ עדכון נכשל — ' + e.message;
+        $('updateBar').style.pointerEvents = 'auto';
+    }
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Utility: File Cleanup
+// ═══════════════════════════════════════════════════════════════
+
+function safeDelete(filePath) {
+    try { if (FS.existsSync(filePath)) FS.unlinkSync(filePath); }
+    catch (e) { /* non-critical */ }
+}
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN WORKFLOW — Transcription Pipeline
+// ═══════════════════════════════════════════════════════════════
+
+function setProgress(pct, msg, sub) {
+    $('pFill').style.width = pct + '%';
+    $('pMsg').textContent = msg;
+    $('pSub').textContent = sub || '';
+}
+
+function showError(msg) {
+    $('errMsg').textContent = msg;
+    $('errBox').style.display = 'block';
+    setFooter('שגיאה');
+}
+
+function finishRun(success, errorMsg) {
+    RUNNING = false;
+    CANCEL  = false;
+    updateRunButton();
+    $('progBox').style.display = 'none';
+
+    if (!success) showError(errorMsg);
+}
+
+async function runAll() {
+    // ── Precondition Checks ──
+    if (RUNNING) return;
+    if (!SEQ || !SEQ.hasWA) { showError('סמן In/Out בטיימליין.'); return; }
+    if (!API_KEY) { showError('התחבר תחילה.'); return; }
+
+    // ── Initialize Run ──
+    RUNNING = true;
+    CANCEL  = false;
+    updateRunButton();
+    $('resBox').style.display  = 'none';
+    $('errBox').style.display  = 'none';
+    $('progBox').style.display = 'block';
+
+    const lang            = cselVal('cselLang');
+    const style           = cselVal('cselStyle');
+    const wordsPerGroup   = parseInt(style.replace('word', '')) || 1;
+    const inSec           = SEQ.i;
+    const outSec          = SEQ.o;
+    const clipDuration    = outSec - inSec;
+
+    if (clipDuration < 0.5) { finishRun(false, 'הקטע קצר מדי.'); return; }
+
+    const tmpDir  = OS.tmpdir();
+    const wavPath = PATH.join(tmpDir, `subai_${Date.now()}.wav`);
+    const mp3Path = wavPath.replace('.wav', '.mp3');
+
+    // ── Step 1: Solo Track (if selected) ──
+    setProgress(3, 'מכין אודיו...', '');
+    await soloTrackBefore();
+    if (CANCEL) { restoreTracksAfter(); finishRun(false, 'בוטל.'); return; }
+
+    // ── Step 2: Export Audio (Work Area Only) ──
+    // FIX: Export ONLY the work area — no ffmpeg trim needed
+    // This ensures sample-accurate timing from In to Out point
+    setProgress(5, 'מייצא אודיו...', 'ייצוא Work Area בלבד');
+
+    const exportRaw = await evalScriptAsync(
+        `exportAudio("${escapeForEvalScript(wavPath)}","",true)`
+    );
+
+    let exportData;
+    try { exportData = JSON.parse(exportRaw); }
+    catch (e) { restoreTracksAfter(); finishRun(false, 'שגיאת ייצוא — תגובה לא תקינה.'); return; }
+
+    if (!exportData.ok) {
+        restoreTracksAfter();
+        finishRun(false, 'ייצוא נכשל: ' + (exportData.e || ''));
+        return;
+    }
+
+    // Wait for export to complete (especially for AME async exports)
+    const isAsyncExport = exportData.async === true;
+    let waitedMs = 0;
+    let lastSize = 0;
+    let stableMs = 0;
+
+    while (waitedMs < EXPORT_TIMEOUT) {
+        if (CANCEL) { restoreTracksAfter(); safeDelete(wavPath); finishRun(false, 'בוטל.'); return; }
+
+        const exists = FS.existsSync(wavPath);
+        const size   = exists ? FS.statSync(wavPath).size : 0;
+
+        if (exists && size > 1000) {
+            if (isAsyncExport) {
+                // AME: wait for file size to stabilize
+                if (size === lastSize) {
+                    stableMs += 500;
+                    if (stableMs >= 2000) break;
+                } else {
+                    stableMs = 0;
+                }
+            } else {
+                break;
+            }
+        }
+
+        lastSize = size;
+        await sleep(500);
+        waitedMs += 500;
+
+        // Update progress during wait
+        const waitPct = Math.min(15, 5 + (waitedMs / EXPORT_TIMEOUT) * 10);
+        setProgress(waitPct, 'מייצא אודיו...', `${Math.floor(waitedMs / 1000)} שניות`);
+    }
+
+    if (!FS.existsSync(wavPath) || FS.statSync(wavPath).size < 500) {
+        restoreTracksAfter();
+        finishRun(false, 'ייצוא לא הושלם — נסה שוב.');
+        return;
+    }
+
+    restoreTracksAfter();
+
+    // ── Step 3: Convert to MP3 (smaller upload) ──
+    setProgress(16, 'ממיר...', 'דחיסה ל-MP3');
+    let audioFile = wavPath;
+
+    await new Promise((resolve) => {
+        const proc = spawn('ffmpeg', [
+            '-y', '-i', wavPath,
+            '-ar', '16000', '-ac', '1', '-b:a', '64k',
+            mp3Path
+        ], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+        proc.on('close', (code) => {
+            if (code === 0 && FS.existsSync(mp3Path) && FS.statSync(mp3Path).size > 200) {
+                audioFile = mp3Path;
+                safeDelete(wavPath);
+            }
+            resolve();
+        });
+        proc.on('error', () => resolve());
+    });
+
+    if (CANCEL) { safeDelete(audioFile); finishRun(false, 'בוטל.'); return; }
+
+    // ── Step 4: Get Upload URL ──
+    setProgress(22, 'מתחבר לשרת...', '');
+
+    let uploadData;
+    try {
+        uploadData = await apiPost('/api/transcribe', {
+            api_key: API_KEY,
+            action: 'get_upload_url'
+        });
+    } catch (e) {
+        safeDelete(audioFile);
+        finishRun(false, 'שגיאת חיבור לשרת.');
+        return;
+    }
+
+    if (uploadData.error) {
+        safeDelete(audioFile);
+        finishRun(false, uploadData.message || 'שגיאה');
+        return;
+    }
+
+    // ── Step 5: Upload Audio ──
+    setProgress(32, 'מעלה אודיו...', '');
+
+    try {
+        await uploadToS3(uploadData.upload_url, audioFile);
+    } catch (e) {
+        safeDelete(audioFile);
+        finishRun(false, 'העלאה נכשלה: ' + e.message);
+        return;
+    }
+
+    safeDelete(audioFile);
+
+    if (CANCEL) { finishRun(false, 'בוטל.'); return; }
+
+    // ── Step 6: Transcribe ──
+    setProgress(45, 'מתמלל...', 'זה יכול לקחת כמה שניות');
+
+    let result;
+    try {
+        result = await apiPost('/api/transcribe', {
+            api_key:        API_KEY,
+            action:         'transcribe',
+            download_url:   uploadData.download_url,
+            file_key:       uploadData.file_key,
+            lang:           lang,
+            model:          'large-v3',
+            // FIX: Do NOT send offset — server returns timestamps from 0.
+            // We apply the timeline offset client-side when placing captions.
+            // This prevents the double-offset bug.
+            audio_duration: clipDuration,
+            caption_style:  style,
+            words_per_group: wordsPerGroup
+        });
+    } catch (e) {
+        finishRun(false, 'שגיאת תמלול: ' + e.message);
+        return;
+    }
+
+    if (result.error) { finishRun(false, result.message || 'שגיאת תמלול'); return; }
+
+    const segments = result.segments || [];
+    const srt      = result.srt || '';
+
+    if (segments.length === 0 && !srt.trim()) {
+        finishRun(false, 'לא נמצא דיבור בקטע.');
+        return;
+    }
+
+    const captionCount = result.count || segments.length;
+
+    // ── Step 7: Place Captions on Timeline ──
+    // FIX: Apply timeline offset HERE — add inSec to each segment's start/end
+    // The server returns timestamps relative to the exported audio (from 0).
+    // We shift them to the correct timeline position.
+    setProgress(88, 'מציב כתוביות...', `${captionCount} כתוביות`);
+
+    const timelineSegments = segments.map((seg) => ({
+        start: seg.start + inSec,
+        end:   seg.end   + inSec,
+        text:  seg.text
+    }));
+
+    // Prepare JSON for ExtendScript — use safe escaping
+    const segmentsJsonForES = JSON.stringify(timelineSegments)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'");
+
+    const extPath = PATH.join(
+        process.env.APPDATA || '',
+        'Adobe', 'CEP', 'extensions', 'com.subai.cloud.panel'
+    ).replace(/\\/g, '/');
+
+    const placeRaw = await evalScriptAsync(
+        `placeCaptions('${segmentsJsonForES}','${extPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', -1)`
+    );
+
+    let placeResult;
+    try { placeResult = JSON.parse(placeRaw); }
+    catch (e) { placeResult = { ok: false }; }
+
+    // Fallback: save SRT and import if direct placement failed
+    if (!placeResult.ok || placeResult.method === 'srt_in_project') {
+        // Build corrected SRT with timeline-offset timestamps
+        const correctedSrt = buildCorrectedSRT(segments, inSec);
+        const srtFileName  = sanitizeFilename(SEQ.name) + '_SubAI_' + Date.now() + '.srt';
+        const srtPath      = PATH.join(tmpDir, srtFileName);
+
+        FS.writeFileSync(srtPath, correctedSrt, 'utf8');
+
+        if (!placeResult.ok) {
+            await evalScriptAsync(
+                `importSRT("${escapeForEvalScript(srtPath)}", ${inSec})`
+            );
+        }
+    }
+
+    // ── Step 8: Done! ──
+    setProgress(100, '✅ הושלם!', '');
+    await sleep(600);
+    $('progBox').style.display = 'none';
+
+    // Update quota
+    if (result.minutes_remaining !== undefined) {
+        USER.remaining = result.minutes_remaining;
+        USER.used = (USER.limit || 0) - result.minutes_remaining;
+        updateQuotaMini();
+    }
+
+    // Show results
+    let chipsHtml = `<span class="chip g">✅ ${captionCount} כתוביות</span>`;
+    chipsHtml += `<span class="chip b">⚡ ${result.elapsed || '—'}s</span>`;
+    if (result.minutes_charged) {
+        chipsHtml += `<span class="chip b">📊 ${result.minutes_charged} דק׳</span>`;
+    }
+    $('rChips').innerHTML = chipsHtml;
+    $('resBox').style.display = 'block';
+
+    setTimeout(() => { $('resBox').style.display = 'none'; }, 5000);
+    setFooter(`✓ ${captionCount} כתוביות!`);
+
+    RUNNING = false;
+    CANCEL  = false;
+    updateRunButton();
+}
+
+/**
+ * buildCorrectedSRT — Creates SRT string with timeline-offset timestamps
+ * @param {Array} segments — Raw segments from server (timestamps from 0)
+ * @param {number} offset — Timeline In point in seconds
+ */
+function buildCorrectedSRT(segments, offset) {
+    let lines = [];
+    for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        const start = seg.start + offset;
+        const end   = seg.end   + offset;
+        lines.push(String(i + 1));
+        lines.push(formatSRTTimestamp(start) + ' --> ' + formatSRTTimestamp(end));
+        lines.push(seg.text);
+        lines.push('');
+    }
+    return '\uFEFF' + lines.join('\n');  // UTF-8 BOM for Premiere compatibility
+}
+
+function formatSRTTimestamp(sec) {
+    sec = Math.max(0, sec);
+    const h  = Math.floor(sec / 3600);
+    const m  = Math.floor((sec % 3600) / 60);
+    const s  = Math.floor(sec % 60);
+    let   ms = Math.round((sec - Math.floor(sec)) * 1000);
+    if (ms >= 1000) ms = 999;
+
+    return String(h).padStart(2, '0') + ':'
+         + String(m).padStart(2, '0') + ':'
+         + String(s).padStart(2, '0') + ','
+         + String(ms).padStart(3, '0');
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Event Bindings
+// ═══════════════════════════════════════════════════════════════
+
+$('btnRun').onclick = runAll;
+
+$('btnCancel').onclick = () => {
+    CANCEL = true;
+    setProgress(null, 'מבטל...', '');
 };
 
-// ═══════════════════════════════════════════
-// Boot
-// ═══════════════════════════════════════════
-(function boot(){
-  setPill('מחבר...');ftr('מחבר...');
-  waitBridge(10000,ok=>{
-    if(!ok){setPill('בעיית חיבור');ftr('סגור ופתח מחדש');}
-    const saved=loadAuth();
-    if(saved&&saved.api_key&&saved.user){
-      API_KEY=saved.api_key;USER=saved.user;enterApp();
-      // Refresh status in background
-      setTimeout(async()=>{
-        try{
-          const r=await apiPost('/api/transcribe',{api_key:saved.api_key,action:'status'});
-          if(!r.error){USER.plan=r.plan;USER.used=r.minutes_used;USER.limit=r.minutes_limit;USER.remaining=r.minutes_remaining;updateQuotaMini();}
-        }catch(e){}
-      },3000);
-    }else{
-      showScreen('s-onboard');setPill('');ftr('');
-    }
-  });
+$('btnErrClose').onclick = () => {
+    $('errBox').style.display = 'none';
+};
+
+$('btnLogout').onclick = () => {
+    clearAuth();
+    API_KEY = null;
+    USER    = null;
+    SEQ     = null;
+    $('tabBar').style.display   = 'none';
+    $('userBar').style.display  = 'none';
+    $('updateBar').style.display = 'none';
+    showScreen('s-onboard');
+    $('loginMsg').textContent = '';
+    $('btnGoogle').disabled = false;
+    setPill('');
+    setFooter('');
+    clearInterval(_ioTimer);
+    clearInterval(_pollTimer);
+};
+
+
+// ═══════════════════════════════════════════════════════════════
+// Boot Sequence
+// ═══════════════════════════════════════════════════════════════
+
+(function boot() {
+    setPill('מחבר...');
+    setFooter('מחבר...');
+
+    waitBridge(10000, (connected) => {
+        if (!connected) {
+            setPill('בעיית חיבור');
+            setFooter('סגור ופתח מחדש');
+            return;
+        }
+
+        const saved = loadAuth();
+        if (saved && saved.api_key && saved.user) {
+            API_KEY = saved.api_key;
+            USER = saved.user;
+            enterApp();
+
+            // Refresh quota in background
+            setTimeout(async () => {
+                try {
+                    const r = await apiPost('/api/transcribe', {
+                        api_key: saved.api_key,
+                        action: 'status'
+                    });
+                    if (!r.error) {
+                        USER.plan      = r.plan;
+                        USER.used      = r.minutes_used;
+                        USER.limit     = r.minutes_limit;
+                        USER.remaining = r.minutes_remaining;
+                        updateQuotaMini();
+                    }
+                } catch (e) { /* */ }
+            }, 3000);
+        } else {
+            showScreen('s-onboard');
+            setPill('');
+            setFooter('');
+        }
+    });
 })();
+
 </script>
 </body>
 </html>
