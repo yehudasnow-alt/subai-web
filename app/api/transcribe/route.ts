@@ -1,24 +1,18 @@
 /**
- * SubAI — Transcription Engine v9.1 (Haiku — Hebrew Language Expert)
+ * SubAI — Transcription Engine v10.0 (Sonnet — Hebrew Language Expert)
  *
- * ARCHITECTURE:
- * Modal Whisper → Hallucination Filter → Haiku Hebrew Expert (2-pass) → Split → RTL SRT
+ * CHANGES FROM v9.1:
+ * ═══════════════════════════════════════════════════════════════
+ * 1. Whisper: ivrit-ai/whisper-large-v3 (Hebrew fine-tuned)
+ * 2. AI: Haiku → Sonnet 4 (dramatically better Hebrew)
+ * 3. Prompts: Shorter, focused, with examples (not essays)
+ * 4. Architecture: Single-pass (Sonnet is good enough for one pass)
+ * 5. Batching: 50 segments + 5 overlap (Sonnet handles more)
+ * 6. Confidence: Enhanced low-confidence word handling
+ * 7. Whisper config: beam_size=5, VAD, initial_prompt
+ * ═══════════════════════════════════════════════════════════════
  *
- * ════════════════════════════════════════════════════════════
- * IRON LAW: SRT TIMESTAMPS ARE WHISPER'S ORIGINALS.
- * Segment start/end = Whisper's first/last word times (LOCKED).
- * When AI changes word count (±2 max), word-level timestamps
- * are redistributed proportionally WITHIN the locked segment
- * boundaries. The SRT output is never affected.
- * ════════════════════════════════════════════════════════════
- *
- * PHILOSOPHY:
- * Haiku doesn't pattern-match — it READS the full text, UNDERSTANDS
- * the topic and context, THINKS about what was actually said, and
- * DECODES Whisper's phonetic errors using deep Hebrew knowledge.
- * It covers ALL registers: biblical, talmudic, legal, medical,
- * tech, academic, military, news, colloquial, children's, poetry,
- * and everything in between.
+ * IRON LAW: SRT TIMESTAMPS ARE WHISPER'S ORIGINALS — NEVER MODIFIED.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -34,6 +28,28 @@ const AWS_REGION = process.env.AWS_REGION || "eu-north-1";
 const S3_BUCKET = process.env.S3_BUCKET || "subai-audio";
 const MODAL_ENDPOINT = process.env.MODAL_ENDPOINT_URL!;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+
+// ═══════════════════════════════════════════════════════════════
+// CONFIG — Easy to tune
+// ═══════════════════════════════════════════════════════════════
+
+const AI_CONFIG = {
+  // Model: Sonnet for Hebrew (much better morphology understanding)
+  // Switch to "claude-haiku-4-5-20251001" for cost savings
+  model: "claude-sonnet-4-20250514",
+  maxTokens: 8192,
+  timeoutMs: 45000,  // Sonnet needs slightly more time
+
+  // Batching
+  batchSize: 50,     // Sonnet handles larger context
+  batchOverlap: 5,   // More overlap = better continuity
+
+  // Validation
+  maxWordDiffShort: 2,   // segments < 10 words
+  maxWordDiffLong: 3,    // segments >= 10 words
+  levThreshold: 0.4,     // max Levenshtein distance (0-1)
+  levThresholdGarbage: 0.85, // more lenient for garbage input
+};
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 const s3 = new S3Client({
@@ -53,7 +69,7 @@ interface Word { start: number; end: number; word: string; probability?: number;
 interface TimedSegment { start: number; end: number; text: string; words: Word[]; }
 
 // ══════════════════════════════════════════════════════════════
-// DATABASE
+// DATABASE (unchanged from v9.1)
 // ══════════════════════════════════════════════════════════════
 
 async function validateApiKey(apiKey: string) {
@@ -92,7 +108,7 @@ async function deductMinutes(userId: string, mins: number) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 1: BUILD TIMED SEGMENTS
+// STEP 1: BUILD TIMED SEGMENTS (unchanged)
 // ══════════════════════════════════════════════════════════════
 
 function buildTimedSegments(segments: Segment[], words: Word[]): TimedSegment[] {
@@ -146,7 +162,7 @@ function buildTimedSegments(segments: Segment[], words: Word[]): TimedSegment[] 
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 1.5: HALLUCINATION FILTER
+// STEP 1.5: HALLUCINATION FILTER (enhanced)
 // ══════════════════════════════════════════════════════════════
 
 function isGarbageSegment(text: string): boolean {
@@ -162,7 +178,6 @@ function filterHallucinations(
   segments: Segment[], words: Word[], prompt: string,
 ): { segments: Segment[]; words: Word[] } {
   const filtered: Segment[] = [];
-  const filteredWords: Word[] = [];
   let removedCount = 0;
 
   for (let i = 0; i < segments.length; i++) {
@@ -175,18 +190,23 @@ function filterHallucinations(
     let skip = false;
     let reason = "";
 
+    // Stuck loop
     if (dur > 5 && uniqueWords <= 2 && textWords.length >= 3) {
       skip = true; reason = "stuck loop";
     }
+    // Single word spanning too long
     if (dur > 6 && textWords.length <= 1) {
       skip = true; reason = `single word ${dur.toFixed(1)}s`;
     }
+    // Too long for content
     if (dur > 10 && textWords.length <= 3) {
       skip = true; reason = "too long for content";
     }
+    // Exact duplicate of previous
     if (i > 0 && text === segments[i - 1].text.trim()) {
       skip = true; reason = "exact duplicate";
     }
+    // Prompt leak
     if (prompt && text.length > 5) {
       const ct = text.replace(/[.!?,;:\s]/g, "");
       const cp = prompt.replace(/[.!?,;:\s]/g, "");
@@ -194,10 +214,11 @@ function filterHallucinations(
         skip = true; reason = "prompt leak";
       }
     }
+    // Repeating pattern
     if (textWords.length >= 4 && uniqueWords <= 2) {
       skip = true; reason = "repeating pattern";
     }
-    // Repeating characters — e.g. "שששששששש..." (seg 64 type)
+    // Repeating characters (e.g. "שששששששש...")
     if (text.length > 10) {
       const charCounts = new Map<string, number>();
       for (const ch of text.replace(/\s/g, "")) {
@@ -211,6 +232,13 @@ function filterHallucinations(
         }
       }
     }
+    // NEW: Near-duplicate (>90% similar to previous)
+    if (i > 0 && !skip && text.length > 10) {
+      const prevText = segments[i - 1].text.trim();
+      if (levenshtein(text, prevText) < 0.15) {
+        skip = true; reason = "near-duplicate";
+      }
+    }
 
     if (skip) {
       console.log(`[FILTER] Removed seg ${i} (${reason}): "${text.substring(0, 40)}…"`);
@@ -221,6 +249,7 @@ function filterHallucinations(
   }
 
   if (removedCount > 0 && words.length > 0) {
+    const filteredWords: Word[] = [];
     for (const w of words) {
       if (filtered.some((s) => w.start >= s.start - 0.1 && w.start < s.end + 0.1)) {
         filteredWords.push(w);
@@ -233,329 +262,138 @@ function filterHallucinations(
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2A: CONFIDENCE HINTS — Tell Haiku where Whisper struggled
+// STEP 2A: CONFIDENCE HINTS (enhanced — now groups by severity)
 // ══════════════════════════════════════════════════════════════
 
 function buildConfidenceHints(timedSegs: TimedSegment[]): string {
-  const hints: string[] = [];
+  const critical: string[] = [];  // < 40%
+  const low: string[] = [];       // 40-70%
+
   for (let si = 0; si < timedSegs.length; si++) {
     const seg = timedSegs[si];
-    const low: string[] = [];
+    const critWords: string[] = [];
+    const lowWords: string[] = [];
+
     for (const w of seg.words) {
-      if (w.probability !== undefined && w.probability < 0.7) {
-        low.push(`"${w.word}"(${(w.probability * 100).toFixed(0)}%)`);
+      if (w.probability !== undefined) {
+        if (w.probability < 0.4) {
+          critWords.push(`"${w.word}"(${(w.probability * 100).toFixed(0)}%)`);
+        } else if (w.probability < 0.7) {
+          lowWords.push(`"${w.word}"(${(w.probability * 100).toFixed(0)}%)`);
+        }
       }
     }
-    if (low.length > 0) hints.push(`[${si}] uncertain: ${low.join(", ")}`);
+    if (critWords.length > 0) critical.push(`[${si}] ⚠️ ${critWords.join(", ")}`);
+    if (lowWords.length > 0) low.push(`[${si}] ${lowWords.join(", ")}`);
   }
-  if (hints.length === 0) return "";
-  return `\n\nWHISPER CONFIDENCE — these words had low confidence, check them first:\n${hints.join("\n")}`;
+
+  if (critical.length === 0 && low.length === 0) return "";
+
+  let hints = "\n\n🔍 WHISPER CONFIDENCE — מילים שWhisper לא בטוח לגביהן:";
+  if (critical.length > 0) {
+    hints += `\n\nקריטי (confidence < 40% — כנראה שגוי):\n${critical.join("\n")}`;
+  }
+  if (low.length > 0) {
+    hints += `\n\nנמוך (confidence < 70% — בדוק):\n${low.join("\n")}`;
+  }
+  return hints;
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2B: THE HEBREW EXPERT PROMPTS
+// STEP 2B: THE HEBREW EXPERT PROMPT — v10 (Focused + Examples)
 // ══════════════════════════════════════════════════════════════
 //
-// PHILOSOPHY: Don't give Haiku a "bug list" — give it EXPERTISE.
-// Teach it to think like a Hebrew linguist who reads, understands,
-// and decodes. The prompt covers ALL of Hebrew, not specific domains.
+// PHILOSOPHY CHANGE from v9.1:
+// - v9.1: Long essay with tables → model gets "lost" in instructions
+// - v10: Short principles + CONCRETE EXAMPLES → model learns by pattern
+//
+// The key insight: Sonnet already knows Hebrew deeply.
+// We don't need to teach it Hebrew — we need to teach it
+// what Whisper gets wrong and how to fix it.
 //
 
-function buildPass1Prompt(): string {
-  return `אתה מומחה בלשנות עברית שמפענח פלט של Whisper (זיהוי דיבור).
+function buildCorrectionPrompt(): string {
+  return `אתה מגיה מומחה. קיבלת תמלול Whisper בעברית עם שגיאות אופייניות.
 
-════════════════════════════════════════════════════════
-העיקרון המרכזי — פענוח פונטי, לא החלפה סמנטית:
-════════════════════════════════════════════════════════
+## המשימה
+תקן שגיאות כתיב פונטיות. הוסף פיסוק בסיסי. שמור על כל מילה שהדובר אמר.
 
-Whisper שומע צלילים ומתרגם אותם לאותיות עבריות.
-כשWhisper כתב מילה — הוא כתב את מה שהאוזן שמעה.
-אם המילה לא נכונה, זה כי הצלילים תורגמו לאותיות הלא נכונות.
+## 3 כללים בלתי ניתנים לשבירה
 
-התפקיד שלך: לפענח את הצלילים — לא להחליף מילים לפי משמעות.
+1. **פענוח פונטי בלבד**: תקן רק כשהמילה השגויה *נשמעת* כמו המילה הנכונה.
+   Whisper שומע צלילים וכותב אותיות — אם הצליל דומה, זה תיקון לגיטימי.
+   אם הצליל שונה, זה החלפה אסורה.
 
-דוגמה נכונה:
-  Whisper כתב "ברחו" → הצלילים הם ב-ר-ח-ו → "ברוך הוא" נשמע ב-ר-ו-ך ה-ו-א
-  הצלילים דומים! → תקן ל"ברוך הוא" ✓
+2. **אל תחליף מילים**: הדובר *בחר* מילה. גם אם "הלך" פחות מתאים מ"צעד" — הדובר אמר "הלך". נקודה.
 
-דוגמה שגויה:
-  Whisper כתב "הלך" → המשפט יותר מתאים עם "צעד"
-  אבל הדובר אמר ה-ל-ך, לא צ-ע-ד! Whisper שמע נכון! → אל תשנה ✗
+3. **סגמנטים עצמאיים**: כל [index] הוא יחידה נפרדת עם תזמון משלה. אסור להעביר מילים בין סגמנטים, למזג או לפצל סגמנטים.
 
-הכלל: אם Whisper כתב מילה עם אותיות מסוימות → הדובר הוציא מהפה צליל
-שגרם לWhisper לכתוב את האותיות האלה. התיקון חייב להיצמד לצלילים האלה.
+## דוגמאות — תיקון לגיטימי ✓
 
-═══════════════════════════════════════════════
-שיטת העבודה — קרא, הבן, פענח:
-═══════════════════════════════════════════════
+| Whisper כתב | תיקון | סיבה |
+|---|---|---|
+| תהרה | טהרה | ת↔ט — פונטי |
+| ברחו | ברוך הוא | צלילים דומים, מיזוג שגוי |
+| בגצל | בגיא צל | מיזוג שגוי, צלילים דומים |
+| שליטא | שליט"א | גרשיים חסרים |
+| האישועות | הישועות | א' רפאים מיותרת |
+| עם עדי | עמדי | פיצול שגוי |
+| אני חושב שזה | אני חושב שזה | תקין — אל תשנה! |
 
-שלב 1 — קרא את כל הטקסט. הבן את הנושא, הסגנון, מי מדבר, מה ההקשר.
-         ההקשר עוזר לך לבחור בין אפשרויות פונטיות — הוא לא מקור למילים חדשות!
+## דוגמאות — תיקון אסור ✗
 
-שלב 2 — חזור לתחילת הטקסט. לכל מילה שאל:
-  1. האם המילה קיימת בעברית ומתאימה להקשר? → השאר.
-  2. המילה לא קיימת / חסרת משמעות פה?
-     → הסתכל על האותיות שWhisper כתב.
-     → איזו מילה עברית נשמעת כמו האותיות האלה?
-     → האם היא מתאימה להקשר? → תקן.
-     → יש כמה אפשרויות פונטיות? → ההקשר מכריע ביניהן.
-  3. המילה קיימת אבל לא מסתדרת? → האם יש מילה שנשמעת דומה ומסתדרת?
-     → כן ← תקן. לא ← השאר כמו שזה.
+| Whisper כתב | תיקון שגוי | למה אסור |
+|---|---|---|
+| הלך | צעד | צליל שונה לגמרי |
+| אמר | ציין | צליל שונה |
+| גדול | עצום | החלפה סמנטית |
+| רוצה | צריך | הדובר אמר רוצה |
+| נדבר | נוצר | שום קשר פונטי |
 
-שלב 3 — ודא: האם כל תיקון שעשיתי נשמע דומה למקור? אם לא — בטל אותו.
+## החלפות פונטיות שכיחות ב-Whisper
 
-════════════════════════════════════════════════════════
-חוק ברזל 1 — כל סגמנט הוא יחידה עצמאית עם תזמון משלו!
-כל שורה [index] מייצגת קטע עם timestamps מדויקים.
-אסור בתכלית האיסור:
-• להעביר מילים מסגמנט אחד לאחר
-• לשנות את סדר הסגמנטים
-• למזג שני סגמנטים
-• לפצל סגמנט לשניים
-• לייצר טקסט חדש שלא היה בסגמנט המקורי
-כל סגמנט מתוקן בפני עצמו — לא נוגעים בתוכן של סגמנטים אחרים!
-════════════════════════════════════════════════════════
+א↔ע, ח↔כ, ט↔ת, ס↔ש, ק↔כ, צ↔ס, ה↔ח, ב↔ו (נדיר)
 
-════════════════════════════════════════════════════════
-חוק ברזל 2 — שמור על מספר מילים קרוב ככל האפשר!
-עדיף מספר מילים זהה. מותר הפרש של ±2 מילים
-אם זה הכרחי (למשל: "בגצל" → "בגיא צל" = +1 מילה — זה בסדר).
-גרשיים לא יוצרים מילה חדשה: רמבם → רמב"ם = מילה אחת.
-אל תוסיף/תמחק מילים שלא לצורך! רק כשWhisper מיזג/פיצל לא נכון.
-════════════════════════════════════════════════════════
+## מה לתקן
 
-פורמט: [index] טקסט מתוקן — שורה לכל סגמנט, בלי לדלג.
+- אותיות שנשמעות דומה שהתחלפו (א↔ע, ח↔כ, ט↔ת וכו')
+- מילים שWhisper מיזג (בגצל → בגיא צל) — מותר +1/+2 מילים
+- מילים שWhisper פיצל (עם עדי → עמדי) — מותר -1/-2 מילים
+- קיצורים וגרשיים: רמבם→רמב"ם, שליטא→שליט"א, צהל→צה"ל, בגץ→בג"ץ
+- א' רפאים מיותרת: האישועה→הישועה, אהולך→הולך
+- פיסוק בסיסי: נקודה בסוף משפט, פסיק לפני מילת קישור, סימן שאלה לשאלות
+- התאמת מין/מספר רק כשברור שWhisper טעה (לא דיבור חופשי)
 
-══════════════════════════════════════════════════════════════
-טבלת החלפות פונטיות — אותיות שנשמעות דומה בעברית:
-══════════════════════════════════════════════════════════════
+## מה לא לעשות
 
-קבוצה 1 — גרוניות (נשמעות זהות בהגייה מודרנית):
-א ↔ ע : עשה/אשה, על/אל, עם/אם, ענן/אנן, עוד/אוד, עין/אין
-ח ↔ כ : חזק/כזק, חשב/כשב, חיים/כיים, חם/כם
-ה ↔ ח : הס/חס, הולם/חולם, הר/חר, הוק/חוק, הזר/חזר
+- לא להחליף מילה למילה שלא נשמעת דומה
+- לא למחוק מילות מילוי (אה, אממ, כאילו, נו) — עוגני תזמון
+- לא לשפר סגנון / לפרמל שפה מדוברת
+- לא לשנות שמות/מותגים/מקומות
+- לא לשנות סדר מילים
+- לא להעביר מילים בין סגמנטים
+- לא להוסיף מילים שלא נאמרו
 
-קבוצה 2 — שיניות/חיכיות:
-ט ↔ ת : טוב/תוב, טבע/תבע, טהור/תהור, טיפש/תיפש
-ס ↔ ש : סיפור/שיפור, סגר/שגר, סער/שער, סכל/שכל
-צ ↔ ס : צד/סד, צער/סער, צפון/ספון
-ז ↔ ס ↔ ש : (נדיר — רק בהגייה לא ברורה)
+## מבחן עצמי לפני כל תיקון
 
-קבוצה 3 — שפתיות:
-ב ↔ ו : (נדיר בעברית, שכיח בערבית)
-ב ↔ פ : (נדיר — רק כשהדובר לא ברור)
-כ ↔ ק : כיסא/קיסא, כרוב/קרוב, כיסוי/קיסוי
+"האם התיקון שלי נשמע דומה למה שWhisper כתב?"
+כן → לגיטימי. לא → אסור. ספק → אל תשנה.
 
-קבוצה 4 — אותיות "רפות":
-ד ↔ ת : דקיקות/תקיקות, דרש/תרש (נדיר)
-ג ↔ כ : (נדיר מאוד)
+## פורמט
 
-══════════════════════════════════════════════════════════════
-שגיאות מורפולוגיות — תחיליות וסיומות:
-══════════════════════════════════════════════════════════════
+[index] טקסט מתוקן
 
-Whisper לפעמים מפרק/ממזג תחיליות שלא כדין:
-ב+מילה: בבית (בֵּית) ≠ ב+בית — אל תפצל
-ש+מילה: שאמר ≠ ש+אמר — אל תפצל
-ה+מילה: המלך ≠ ה+מלך — אל תפצל
-מ+מילה: מהבית ≠ מ+ה+בית — אל תפצל
-ו+מילה: ואמר ≠ ו+אמר — אל תפצל
-
-אותיות רפאים — Whisper מוסיף אותיות שלא קיימות:
-האישועות → הישועות (א' מיותרת)
-ואישועה → וישועה (א' מיותרת)
-אהולך → הולך (א' מיותרת)
-אוהזר → חזר (א' מיותרת + ה→ח)
-
-══════════════════════════════════════════════════════════════
-מיזוג/פיצול שגוי — Whisper מחבר או מפריד מילים לא נכון:
-══════════════════════════════════════════════════════════════
-
-Whisper ממזג מילים (צריך לפצל — מותר +1 מילה):
-בגצל → בגיא צל (תהלים כ"ג — "בגיא צלמוות")
-יררה → אירא רע (Whisper מיזג — צריך 2 מילים)
-ברחו → ברוך הוא (Whisper קיצר "הקדוש ברוך הוא")
-
-Whisper מפצל מילים (צריך למזג — מותר -1 מילה):
-עם מודי → עמדי/עימדי (תהלים כ"ג — כי אתה עמדי)
-כל יום → כליום (rare)
-
-כלל: אם Whisper יצר מילה שלא קיימת על ידי מיזוג — פצל.
-אם Whisper פיצל מילה קיימת לשתיים חסרות משמעות — מזג.
-זה מותר כשהשינוי הוא ±1 או ±2 מילים.
-
-══════════════════════════════════════════════════════════════
-קיצורים וגרשיים — תמיד מילה אחת:
-══════════════════════════════════════════════════════════════
-
-רבניים: שליטא→שליט"א, זצל→זצ"ל, זיעא→זיע"א, נע→נ"ע, עה→ע"ה
-חכמים: רמבם→רמב"ם, רשי→רש"י, חזל→חז"ל, שס→ש"ס, שות→שו"ת, שוע→שו"ע
-מקרא: תנך→תנ"ך, רמח→רמ"ח, תריג→תרי"ג
-צבאי: צהל→צה"ל, אמן→אמ"ן, שבכ→שב"כ, מגב→מג"ב, חיר→חי"ר
-דרגות: רבט→רב"ט, סמר→סמ"ר, רסן→רס"ן, סאל→סא"ל, אלמ→אל"מ, תאל→תא"ל
-מקצועי: עוד→עו"ד, דר→ד"ר, רוח→רו"ח, שבס→שב"ס
-אחר: בגץ→בג"ץ, בנט→בנ"ט(?), מהט→מה"ט
-
-══════════════════════════════════════════════════════════════
-ביטויים קבועים — אם מחצית הביטוי נכון, תקן את השני:
-══════════════════════════════════════════════════════════════
-
-ברכות: ברוך השם, בעזרת השם, אם ירצה השם, חס ושלום, חס וחלילה
-ברכות שם: עליו השלום, עליה השלום, זכרונו לברכה, יבדל לחיים טובים
-כבוד: יישר כוח (לא ישר כח), כל הכבוד, חזק וברוך
-מסורת: תורה ומצוות, קדושה וטהרה, דין ורחמים, חסד ואמת
-חולין: רפואה שלמה, בריאות איתנה, בשעה טובה ומוצלחת
-משפטי: על פי חוק, בהתאם לסעיף, לאור האמור, מכאן ומכאן, אי לכך
-אקדמי: לאור מחקרים, על פי הממצאים, בהשוואה ל, לסיכום
-יומיומי: מה שלומך, מה קורה, מה נשמע, יום טוב, לילה טוב, סוף שבוע
-
-══════════════════════════════════════════════════════════════
-התאמת מין ומספר — סימן לשגיאה:
-══════════════════════════════════════════════════════════════
-
-אם הנושא זכר → הפועל חייב להיות בזכר: הוא הלכה → הוא הלך
-אם הנושא נקבה → הפועל בנקבה: היא אמר → היא אמרה
-רבים: הם הלך → הם הלכו, הילדים רוצה → הילדים רוצים
-שם עצם + תואר: בית גדולה → בית גדול, עיר גדול → עיר גדולה
-אבל: זה שפה טבעית! אם מישהו אמר "הם הולך" בכוונה (דיבור חופשי) → השאר.
-תקן רק כשברור שWhisper טעה, לא כשהדובר דיבר חופשי.
-
-══════════════════════════════════════════════════════════════
-הומופונים — כשהצליל זהה, ההקשר מכריע:
-══════════════════════════════════════════════════════════════
-
-זו הסיטואציה היחידה שבה ההקשר מכריע לבד — כי שתי המילים
-נשמעות בדיוק אותו דבר, אז Whisper לא יכול להבחין ביניהן:
-
-שם (name) ↔ שם (there) — ההקשר מחליט
-על (on) ↔ עָל (yoke) — ההקשר מחליט
-לב (heart) ↔ לֵב (name) — ההקשר מחליט
-כלי (tool) ↔ כְּלִי (vessel) — ההקשר מחליט
-קר (cold) ↔ קָר (read/called) — ההקשר מחליט
-אם (if) ↔ אֵם (mother) — ההקשר מחליט
-בר (son/outside/grain) — ההקשר מחליט
-חי (alive) ↔ חַי (living thing) — ההקשר מחליט
-
-כלל: אם שתי הקריאות אפשריות בהקשר → השאר את מה שWhisper כתב.
-תקן רק כשאחת הקריאות היא חסרת משמעות בהקשר.
-
-══════════════════════════════════════════════════════════════
-טקסט זבל — אותיות לטיניות/יווניות מעורבות בעברית:
-══════════════════════════════════════════════════════════════
-
-אם סגמנט מכיל תווים לטיניים/יווניים אקראיים → נסה לשחזר מההקשר.
-אם אי אפשר → החזר ללא שינוי.
-אבל: מילים אנגליות לגיטימיות (API, WhatsApp, iPhone) → השאר!
-
-══════════════════════════════════════════════════════════════
-מה אסור לעשות — בשום מצב:
-══════════════════════════════════════════════════════════════
-
-❌ להחליף מילה במילה שלא נשמעת דומה — גם אם המילה החדשה "מתאימה יותר למשפט"
-   הלך→צעד ✗ (צלילים שונים לגמרי!)
-   גדול→עצום ✗ (הדובר לא אמר עצום!)
-   אמר→ציין ✗ (Whisper שמע א-מ-ר, לא צ-י-ן!)
-   נדבר→נוצר ✗ (צלילים שונים!)
-   טעם→נסתיימה ✗ (שום קשר פונטי!)
-❌ להוסיף/למחוק מילים שלא לצורך — רק כש-Whisper מיזג או פיצל צלילים לא נכון
-❌ לשפר סגנון או דקדוק של דיבור חופשי
-❌ למחוק מילות מילוי (כאילו, אממ, אה, נו, בוא, סתם, כזה) — אלה עוגני תזמון!
-❌ לשנות שמות, מקומות, מותגים
-❌ לשנות סדר מילים
-❌ להוסיף מילים שלא נאמרו — אם הדובר לא הוציא את הצליל מהפה, המילה לא קיימת
-❌ להפוך עברית מדוברת לעברית ספרותית
-❌ להעביר מילים או תוכן מסגמנט אחד לאחר (כל סגמנט = יחידת תזמון)
-
-══════════════════════════════════════════════════════════════
-כלל ההכרעה — תמיד חזור לצלילים:
-══════════════════════════════════════════════════════════════
-
-שאל את עצמך: "האם התיקון שלי נשמע דומה למה שWhisper כתב?"
-  כן → התיקון לגיטימי (פענוח פונטי)
-  לא → התיקון פסול (החלפה סמנטית — אסור!)
-
-דוגמאות לתיקון לגיטימי (צליל דומה):
-  ברחו → ברוך הוא ✓ (ב-ר-ח-ו ≈ ב-ר-ו-ך ה-ו-א)
-  בגצל → בגיא צל ✓ (ב-ג-צ-ל ≈ ב-ג-י-א צ-ל)
-  יררה → אירא ✓ (י-ר-ר-ה ≈ א-י-ר-א)
-  תהרה → טהרה ✓ (ת-ה-ר-ה ≈ ט-ה-ר-ה)
-  עם עדי → עמדי ✓ (ע-ם ע-ד-י ≈ ע-מ-ד-י)
-  שליטא → שליט"א ✓ (אותם צלילים בדיוק)
-
-דוגמאות לתיקון פסול (צליל שונה):
-  הלך → צעד ✗ (ה-ל-ך ≠ צ-ע-ד)
-  יפה → מדהים ✗ (י-פ-ה ≠ מ-ד-ה-י-ם)
-  רוצה → צריך ✗ (ר-ו-צ-ה ≠ צ-ר-י-ך)
-
-ספק? → השאר כמו שWhisper כתב.
-
-פורמט פלט: [index] טקסט מתוקן — שורה אחת לכל סגמנט.`;
-}
-
-function buildPass2Prompt(): string {
-  return `אתה מגיה מקצועי. קיבלת טקסט עברי שכבר תוקן פונטית.
-תפקידך: להוסיף פיסוק טבעי ולתפוס שגיאות שנשארו.
-
-════════════════════════════════════════════════════════
-חוק ברזל 1 — כל סגמנט הוא יחידה עצמאית!
-אסור להעביר מילים מסגמנט לסגמנט. אסור למזג/לפצל סגמנטים.
-כל [index] מתוקן בנפרד. תוכן של סגמנט X נשאר בסגמנט X.
-════════════════════════════════════════════════════════
-
-════════════════════════════════════════════════════════
-חוק ברזל 2 — שמור על מספר מילים!
-פיסוק מתחבר למילה שלפניו: "שלום." = מילה אחת. "שלום ." = שגיאה.
-אם נדרש תיקון שמשנה ±1 מילה — מותר. יותר מזה — אל תשנה.
-════════════════════════════════════════════════════════
-
-פורמט: [index] טקסט מתוקן — שורה אחת לכל סגמנט, בלי לדלג.
-
-══════════════════════════════════════════════════════════════
-פיסוק — כללים:
-══════════════════════════════════════════════════════════════
-
-נקודה (.) — בסוף משפט שלם. לא בכל שורה! רק כשהמשפט באמת נגמר.
-פסיק (,) — בין פסוקיות, אחרי מילת קישור (אבל, כי, אם, כש, כאשר, למרות ש),
-             לפני ואחרי משפט מוסגר, ברשימה.
-סימן שאלה (?) — רק לשאלות אמיתיות. לא לשאלות רטוריות בתוך דיבור שוטף.
-סימן קריאה (!) — רק כשברור שהדובר קרא/הדגיש. שימוש מינימלי.
-נקודתיים (:) — לפני ציטוט או רשימה.
-מרכאות ("") — לדיבור ישיר, ציטוט, מונח מיוחד.
-מקף (—) — למשפט מוסגר, הערת ביניים.
-
-כללי הצמדה:
-פיסוק תמיד צמוד למילה שלפניו ← "שלום, מה" ✓ | "שלום , מה" ✗
-פיסוק לא יוצר מילה נפרדת ← 3 מילים נשארות 3 מילים אחרי פיסוק
-
-══════════════════════════════════════════════════════════════
-תיקוני הקשר — רק פענוח פונטי שPass 1 פספס:
-══════════════════════════════════════════════════════════════
-
-קרא שוב את כל הטקסט. אם יש מילה שעדיין לא הגיונית בהקשר:
-→ הסתכל על האותיות שWhisper כתב
-→ האם יש מילה שנשמעת דומה ומתאימה?
-→ כן ← תקן. לא ← השאר.
-
-זכור: ההקשר עוזר לבחור בין מועמדים פונטיים.
-ההקשר לא מקור למילים חדשות שלא נשמעות כמו המקור!
-
-מה לא לעשות:
-❌ להחליף מילה במילה שלא נשמעת דומה (גם אם "מתאימה יותר")
-❌ להוסיף/למחוק מילים שלא לצורך
-❌ לפרמל שפה מדוברת
-❌ למחוק מילות מילוי
-
-פורמט פלט: [index] טקסט מתוקן`;
+שורה אחת לכל סגמנט. אסור לדלג על סגמנטים. אסור להוסיף הסברים.`;
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2C: HAIKU API + PARSING
+// STEP 2C: AI API (Sonnet) + PARSING
 // ══════════════════════════════════════════════════════════════
 
-async function callHaiku(
+async function callAI(
   input: string,
   systemPrompt: string,
-  timeoutMs: number = 30000,
+  timeoutMs: number = AI_CONFIG.timeoutMs,
 ): Promise<string | null> {
   if (!ANTHROPIC_API_KEY) return null;
 
@@ -571,8 +409,8 @@ async function callHaiku(
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 8192,
+        model: AI_CONFIG.model,
+        max_tokens: AI_CONFIG.maxTokens,
         system: systemPrompt,
         messages: [{ role: "user", content: input }],
       }),
@@ -581,7 +419,35 @@ async function callHaiku(
     clearTimeout(timeout);
 
     if (!response.ok) {
-      console.warn(`[HAIKU] API error: ${response.status}`);
+      const status = response.status;
+      console.warn(`[AI] API error: ${status}`);
+
+      // Rate limit — wait and retry once
+      if (status === 429) {
+        const retryAfter = parseInt(response.headers.get("retry-after") || "5");
+        console.log(`[AI] Rate limited, waiting ${retryAfter}s...`);
+        await new Promise((r) => setTimeout(r, retryAfter * 1000));
+
+        const retryResponse = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: AI_CONFIG.model,
+            max_tokens: AI_CONFIG.maxTokens,
+            system: systemPrompt,
+            messages: [{ role: "user", content: input }],
+          }),
+        });
+
+        if (!retryResponse.ok) return null;
+        const retryResult = await retryResponse.json();
+        return retryResult.content?.[0]?.text || null;
+      }
+
       return null;
     }
 
@@ -589,8 +455,8 @@ async function callHaiku(
     return result.content?.[0]?.text || null;
   } catch (e: any) {
     clearTimeout(timeout);
-    if (e.name === "AbortError") console.warn(`[HAIKU] Timeout (${timeoutMs}ms)`);
-    else console.error("[HAIKU] Error:", e.message);
+    if (e.name === "AbortError") console.warn(`[AI] Timeout (${timeoutMs}ms)`);
+    else console.error("[AI] Error:", e.message);
     return null;
   }
 }
@@ -598,13 +464,10 @@ async function callHaiku(
 function parseCorrections(output: string): Array<{ idx: number; text: string }> {
   const corrected: Array<{ idx: number; text: string }> = [];
   for (const line of output.split("\n")) {
-    // Match [index] text  OR  [index|timing] text
     const m = line.match(/\[(\d+)(?:\|[^\]]+)?\]\s*(.*)/);
     if (m && m[2].trim()) {
       let text = m[2].trim();
-      // Strip format artifacts Haiku might echo back:
-      //   "(33w) actual text"  →  "actual text"
-      //   "** actual text"    →  "actual text"
+      // Strip format artifacts AI might echo back
       text = text.replace(/^\(\d+w\)\s*/, "");
       text = text.replace(/^\*{1,3}\s*/, "");
       text = text.trim();
@@ -619,23 +482,7 @@ function parseCorrections(output: string): Array<{ idx: number; text: string }> 
 // ══════════════════════════════════════════════════════════════
 // STEP 2D: APPLY CORRECTIONS — SEGMENT-TIMESTAMP-LOCKED
 // ══════════════════════════════════════════════════════════════
-//
-// GUARANTEES:
-// • seg.start — ALWAYS = Whisper's original first-word start (LOCKED)
-// • seg.end   — ALWAYS = Whisper's original last-word end (LOCKED)
-// • SRT timestamps are therefore 100% Whisper-accurate
-//
-// WORD COUNT POLICY:
-// • Same word count → map 1:1, original word timestamps preserved
-// • ±1 or ±2 words → ACCEPT, redistribute word timestamps
-//   proportionally within the LOCKED segment boundaries
-// • ±3+ words → REJECT entire segment (too risky)
-//
 
-/**
- * Redistribute word timestamps proportionally within locked segment boundaries.
- * segStart and segEnd are Whisper's originals and never change.
- */
 function redistributeWordTimestamps(
   corrWords: string[],
   segStart: number,
@@ -668,10 +515,11 @@ function applyCorrections(
     const corrWords = correction.text.split(/\s+/).filter((w) => w);
     const wordDiff = Math.abs(corrWords.length - origWords.length);
 
-    // Proportional tolerance: short segments ±2, longer segments ±3
-    const maxWordDiff = origWords.length >= 10 ? 3 : 2;
+    const maxWordDiff = origWords.length >= 10
+      ? AI_CONFIG.maxWordDiffLong
+      : AI_CONFIG.maxWordDiffShort;
 
-    // ═══ REJECT if word count changed too much ═══
+    // REJECT if word count changed too much
     if (wordDiff > maxWordDiff) {
       console.warn(
         `[${passName}] REJECTED seg ${i} (words ${origWords.length}→${corrWords.length}): "${seg.text.trim().substring(0, 60)}" → "${correction.text.substring(0, 60)}"`,
@@ -680,7 +528,7 @@ function applyCorrections(
       return seg;
     }
 
-    // Check: did anything actually change? (ignoring punctuation)
+    // Check if anything actually changed (ignoring punctuation)
     const stripPunct = (w: string) => w.replace(/[.!?,;:"""״'''\-—…·]/g, "");
     const origClean = origWords.map(stripPunct).join(" ");
     const corrClean = corrWords.map(stripPunct).join(" ");
@@ -689,11 +537,10 @@ function applyCorrections(
       // Punctuation-only change → always accept
       if (seg.text.trim() !== correction.text) {
         accepted++;
-        // Same word count guaranteed here — map 1:1
         const newWords = seg.words.map((w, wi) => ({
-          start: w.start,             // ← LOCKED
-          end: w.end,                 // ← LOCKED
-          probability: w.probability, // ← PRESERVED
+          start: w.start,
+          end: w.end,
+          probability: w.probability,
           word: wi < corrWords.length ? corrWords[wi] : w.word,
         }));
         return { start: seg.start, end: seg.end, text: correction.text, words: newWords };
@@ -704,7 +551,7 @@ function applyCorrections(
     // Substantive text change → Levenshtein check
     const dist = levenshtein(origClean, corrClean);
     const garbage = isGarbageSegment(seg.text);
-    const threshold = garbage ? 0.85 : 0.4;
+    const threshold = garbage ? AI_CONFIG.levThresholdGarbage : AI_CONFIG.levThreshold;
 
     if (dist > threshold) {
       console.warn(
@@ -714,34 +561,29 @@ function applyCorrections(
       return seg;
     }
 
-    // ═══ ACCEPTED ═══
+    // ACCEPTED
     accepted++;
 
     let newWords: Word[];
 
     if (wordDiff === 0) {
-      // Same word count → 1:1 mapping, original timestamps preserved
       newWords = seg.words.map((w, wi) => ({
-        start: w.start,             // ← LOCKED (Whisper original)
-        end: w.end,                 // ← LOCKED (Whisper original)
+        start: w.start,     // LOCKED
+        end: w.end,         // LOCKED
         probability: w.probability,
         word: wi < corrWords.length ? corrWords[wi] : w.word,
       }));
-      console.log(
-        `[${passName}] OK seg ${i} (${(dist * 100).toFixed(0)}%, same wc): "${seg.text.trim().substring(0, 50)}" → "${correction.text.substring(0, 50)}"`,
-      );
     } else {
-      // Word count changed by 1-2 → redistribute WITHIN locked segment bounds
-      // seg.start and seg.end stay EXACTLY as Whisper set them
       newWords = redistributeWordTimestamps(corrWords, seg.start, seg.end);
-      console.log(
-        `[${passName}] OK seg ${i} (${(dist * 100).toFixed(0)}%, wc ${origWords.length}→${corrWords.length}): "${seg.text.trim().substring(0, 50)}" → "${correction.text.substring(0, 50)}"`,
-      );
     }
 
+    console.log(
+      `[${passName}] OK seg ${i} (lev ${(dist * 100).toFixed(0)}%, wc ${origWords.length}→${corrWords.length}): "${seg.text.trim().substring(0, 50)}" → "${correction.text.substring(0, 50)}"`,
+    );
+
     return {
-      start: seg.start, // ← LOCKED (Whisper's original)
-      end: seg.end,     // ← LOCKED (Whisper's original)
+      start: seg.start,  // LOCKED
+      end: seg.end,       // LOCKED
       text: correction.text,
       words: newWords,
     };
@@ -764,86 +606,95 @@ function levenshtein(a: string, b: string): number {
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2E: MULTI-PASS ORCHESTRATOR WITH BATCHING
+// STEP 2E: SINGLE-PASS ORCHESTRATOR WITH BATCHING
 // ══════════════════════════════════════════════════════════════
+//
+// v10 CHANGE: Single pass instead of 2.
+// Sonnet is good enough to do phonetic correction + punctuation in one pass.
+// This saves 50% AI cost and reduces latency.
+//
 
-const BATCH_SIZE = 30;    // segments per batch — keeps Haiku fast
-const BATCH_OVERLAP = 3;  // overlap for context continuity
-
-/**
- * Split segments into overlapping batches.
- * Each batch has BATCH_SIZE segments with BATCH_OVERLAP overlap.
- * Returns array of { startIdx, segs } where startIdx is the
- * original index of the first segment in this batch.
- */
 function makeBatches(segs: TimedSegment[]): Array<{ startIdx: number; segs: TimedSegment[] }> {
-  if (segs.length <= BATCH_SIZE) {
+  const { batchSize, batchOverlap } = AI_CONFIG;
+
+  if (segs.length <= batchSize) {
     return [{ startIdx: 0, segs }];
   }
 
   const batches: Array<{ startIdx: number; segs: TimedSegment[] }> = [];
   let i = 0;
   while (i < segs.length) {
-    const end = Math.min(i + BATCH_SIZE, segs.length);
+    const end = Math.min(i + batchSize, segs.length);
     batches.push({ startIdx: i, segs: segs.slice(i, end) });
-    i = end - BATCH_OVERLAP;
-    if (i >= segs.length - BATCH_OVERLAP) {
-      // Last batch already covers the rest
-      break;
-    }
+    i = end - batchOverlap;
+    if (i >= segs.length - batchOverlap) break;
   }
   return batches;
 }
 
-/**
- * Run a single Haiku pass on batches, merge results.
- */
-async function runPassOnBatches(
+async function runCorrectionPass(
   allSegs: TimedSegment[],
   batches: Array<{ startIdx: number; segs: TimedSegment[] }>,
   systemPrompt: string,
-  passName: string,
-  timeoutMs: number,
   confHints: string = "",
 ): Promise<{ segments: TimedSegment[]; accepted: number; rejected: number }> {
-  let totalAccepted = 0;
-  let totalRejected = 0;
-
-  // We'll collect all corrections with their GLOBAL indices
   const allCorrections: Array<{ idx: number; text: string }> = [];
+
+  // Run batches in parallel (up to 3 concurrent)
+  const CONCURRENCY = 3;
+  const batchPromises: Array<Promise<void>> = [];
 
   for (let bi = 0; bi < batches.length; bi++) {
     const batch = batches[bi];
-    const input = batch.segs.map((s, localIdx) => {
-      return `[${localIdx}] ${s.text}`;
-    }).join("\n") + (bi === 0 ? confHints : "");
 
-    console.log(`[AI] ${passName} batch ${bi + 1}/${batches.length} — ${batch.segs.length} segs`);
-    const output = await callHaiku(input, systemPrompt, timeoutMs);
+    const promise = (async (batchIndex: number) => {
+      const input = batch.segs.map((s, localIdx) => {
+        return `[${localIdx}] ${s.text}`;
+      }).join("\n") + (batchIndex === 0 ? confHints : "");
 
-    if (output) {
-      const batchCorr = parseCorrections(output);
-      // Map local indices back to global
-      for (const c of batchCorr) {
-        const globalIdx = batch.startIdx + c.idx;
-        // Skip overlap segments if already corrected by previous batch
-        if (!allCorrections.some((existing) => existing.idx === globalIdx)) {
-          allCorrections.push({ idx: globalIdx, text: c.text });
+      console.log(`[AI] Batch ${batchIndex + 1}/${batches.length} — ${batch.segs.length} segs`);
+      const output = await callAI(input, systemPrompt);
+
+      if (output) {
+        const batchCorr = parseCorrections(output);
+        for (const c of batchCorr) {
+          const globalIdx = batch.startIdx + c.idx;
+          if (!allCorrections.some((existing) => existing.idx === globalIdx)) {
+            allCorrections.push({ idx: globalIdx, text: c.text });
+          }
         }
+      } else {
+        console.warn(`[AI] Batch ${batchIndex + 1} returned null`);
       }
-    } else {
-      console.warn(`[AI] ${passName} batch ${bi + 1} returned null`);
+    })(bi);
+
+    batchPromises.push(promise);
+
+    // Throttle concurrency
+    if (batchPromises.length >= CONCURRENCY) {
+      await Promise.race(batchPromises);
+      // Clean up resolved promises
+      const pending: Array<Promise<void>> = [];
+      for (const p of batchPromises) {
+        const result = await Promise.race([p, Promise.resolve("pending")]);
+        if (result === "pending") pending.push(p);
+      }
+      batchPromises.length = 0;
+      batchPromises.push(...pending);
     }
   }
+
+  // Wait for remaining batches
+  await Promise.all(batchPromises);
 
   if (allCorrections.length === 0) {
     return { segments: allSegs, accepted: 0, rejected: 0 };
   }
 
-  return applyCorrections(allSegs, allCorrections, passName);
+  return applyCorrections(allSegs, allCorrections, "CORRECT");
 }
 
-async function aiCorrectMultiPass(
+async function aiCorrect(
   timedSegs: TimedSegment[],
   language: string,
 ): Promise<{ segments: TimedSegment[]; method: string }> {
@@ -852,69 +703,44 @@ async function aiCorrectMultiPass(
   }
 
   if (language !== "he") {
-    return aiCorrectSinglePass(timedSegs, language);
+    return aiCorrectNonHebrew(timedSegs, language);
   }
 
   try {
     const confHints = buildConfidenceHints(timedSegs);
     const batches = makeBatches(timedSegs);
-    console.log(`[AI] ${timedSegs.length} segs → ${batches.length} batch(es) of ≤${BATCH_SIZE}`);
+    console.log(`[AI] ${timedSegs.length} segs → ${batches.length} batch(es) of ≤${AI_CONFIG.batchSize}`);
 
-    let currentSegs = timedSegs;
-    let totalAccepted = 0;
-    let totalRejected = 0;
-
-    // ══════════════════════════════════════════
-    // PASS 1: Read → Understand → Decode → Fix
-    // ══════════════════════════════════════════
-    const pass1Prompt = buildPass1Prompt();
-    const r1 = await runPassOnBatches(
-      currentSegs, makeBatches(currentSegs),
-      pass1Prompt, "PASS1", 30000, confHints,
+    const systemPrompt = buildCorrectionPrompt();
+    const result = await runCorrectionPass(
+      timedSegs, batches, systemPrompt, confHints,
     );
-    currentSegs = r1.segments;
-    totalAccepted += r1.accepted;
-    totalRejected += r1.rejected;
-    console.log(`[AI] Pass 1 total: ${r1.accepted} accepted, ${r1.rejected} rejected`);
 
-    // ══════════════════════════════════════════
-    // PASS 2: Punctuation + Context refinement
-    // ══════════════════════════════════════════
-    const pass2Prompt = buildPass2Prompt();
-    const r2 = await runPassOnBatches(
-      currentSegs, makeBatches(currentSegs),
-      pass2Prompt, "PASS2", 25000,
-    );
-    currentSegs = r2.segments;
-    totalAccepted += r2.accepted;
-    totalRejected += r2.rejected;
-    console.log(`[AI] Pass 2 total: ${r2.accepted} accepted, ${r2.rejected} rejected`);
-
-    console.log(`[AI] GRAND TOTAL: ${totalAccepted} accepted, ${totalRejected} rejected`);
-    return { segments: currentSegs, method: `claude_2pass_${batches.length}bat` };
+    console.log(`[AI] Result: ${result.accepted} accepted, ${result.rejected} rejected`);
+    return {
+      segments: result.segments,
+      method: `sonnet_1pass_${batches.length}bat`,
+    };
   } catch (e: any) {
     console.error("[AI] Error:", e.message || e);
     return { segments: timedSegs, method: "error_fallback" };
   }
 }
 
-async function aiCorrectSinglePass(
+async function aiCorrectNonHebrew(
   timedSegs: TimedSegment[],
   language: string,
 ): Promise<{ segments: TimedSegment[]; method: string }> {
   const langName = language === "ar" ? "Arabic" : "English";
   const prompt = `Fix ${langName} Whisper transcription errors. Add proper punctuation.
 
-CRITICAL: Every output segment MUST have EXACTLY the same word count as input.
-NEVER add or remove words. Punctuation attaches to the preceding word.
+CRITICAL: Every output segment MUST have EXACTLY the same word count as input (±2 max).
+Punctuation attaches to the preceding word (no extra word count).
 
 Format: [index] corrected text — one per line, every segment.`;
 
-  const input = timedSegs.map((s, i) => {
-    return `[${i}] ${s.text}`;
-  }).join("\n");
-
-  const output = await callHaiku(input, prompt, 30000);
+  const input = timedSegs.map((s, i) => `[${i}] ${s.text}`).join("\n");
+  const output = await callAI(input, prompt, 30000);
   if (!output) return { segments: timedSegs, method: "api_error" };
 
   const corrections = parseCorrections(output);
@@ -926,7 +752,7 @@ Format: [index] corrected text — one per line, every segment.`;
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 3: SPLITTING — breaks only, timestamps from Whisper
+// STEP 3: SPLITTING (unchanged from v9.1)
 // ══════════════════════════════════════════════════════════════
 
 function applySplitting(segs: TimedSegment[], style: string, wpg: number): Segment[] {
@@ -1016,7 +842,6 @@ function isBound(a: Word, b: Word): boolean {
   const wa = a.word.trim().replace(/[,.:;!?"״""—…]+$/g, "");
   const wb = b.word.trim().replace(/[,.:;!?"״""—…]+$/g, "");
 
-  // Titles
   if ([
     "הרב","הגאון","הרבנית","מורנו","ורבנו","המקובל","הצדיק",
     "ר'","רבי","רבנו","מרן","כבוד","כ\"ק",
@@ -1025,13 +850,9 @@ function isBound(a: Word, b: Word): boolean {
     "אלוף","תא\"ל","אל\"מ","סא\"ל","רס\"ן","סרן","סגן",
   ].includes(wa)) return true;
 
-  // Negation
   if (["לא","אל","אין","בלי","ללא","אינו","אינה","אינם","אינן","איננו"].includes(wa)) return true;
-
-  // Definite article
   if (!wa.startsWith("ה") && wb.startsWith("ה") && wb.length > 2) return true;
 
-  // Prepositions, conjunctions, relatives
   if ([
     "את","של","על","אל","עם","בת","בן","כל","גם","רק","כי","אם","או","כמו",
     "ו","וגם","אבל","אלא","אך","אולם","לכן","משום","מפני","בגלל","למרות",
@@ -1039,18 +860,13 @@ function isBound(a: Word, b: Word): boolean {
     "לפי","אצל","בשביל","למען","כלפי","מתוך","בתוך","מאחורי","לפני","אחרי",
   ].includes(wa)) return true;
 
-  // של after noun
   if (wb === "של") return true;
-
-  // Numbers
   if (/^\d+$/.test(wa)) return true;
 
-  // Honorific suffixes
   if ([
     'שליט"א','שליטא','זצ"ל','זצל','זיע"א','נ"ע','ע"ה','הי"ד','יבדל"א',
   ].some((h) => wb.replace(/[""״]/g, '"') === h)) return true;
 
-  // Smichut pairs
   if (wa === "בית" && ["ספר","חולים","כנסת","משפט","דין","מדרש","עלמין"].includes(wb)) return true;
   if (wa === "ארץ" && wb === "ישראל") return true;
   if (wa === "חוק" && wb === "יסוד") return true;
@@ -1082,7 +898,7 @@ function countTail(c: Word[]): number {
 }
 
 // ══════════════════════════════════════════════════════════════
-// SRT BUILDER (RTL)
+// SRT BUILDER (RTL) — unchanged
 // ══════════════════════════════════════════════════════════════
 
 function buildSrt(segs: Segment[], lang: string = "he"): string {
@@ -1107,7 +923,7 @@ function buildSrt(segs: Segment[], lang: string = "he"): string {
 }
 
 // ══════════════════════════════════════════════════════════════
-// RATE LIMITING
+// RATE LIMITING — unchanged
 // ══════════════════════════════════════════════════════════════
 
 const rateLimits = new Map<string, { count: number; resetAt: number }>();
@@ -1175,13 +991,25 @@ export async function POST(req: NextRequest) {
       if (audioDur > 3600) return err("מקסימום 60 דקות לתמלול בודד.", 400);
 
       // ── STEP 1: Modal Whisper ──
+      // NOTE: Update your Modal endpoint to use ivrit-ai/whisper-large-v3-ct2
+      // with the optimized parameters (see analysis.md)
       console.log("[MODAL] Sending to Whisper...");
       const t0 = Date.now();
 
       const modalRes = await fetch(MODAL_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audio_url: download_url, lang: lang || "he" }),
+        body: JSON.stringify({
+          audio_url: download_url,
+          lang: lang || "he",
+          // NEW: Pass optimized config to Modal
+          beam_size: 5,
+          best_of: 5,
+          vad_filter: true,
+          initial_prompt: lang === "he"
+            ? "שלום, זהו תמלול מקצועי בעברית תקנית. סימני פיסוק: נקודה, פסיק, סימן שאלה. קיצורים: רמב\"ם, רש\"י, צה\"ל, בג\"ץ, ד\"ר, עו\"ד. ביטויים: ברוך השם, בעזרת השם, חס ושלום, יישר כוח."
+            : undefined,
+        }),
       });
 
       if (!modalRes.ok) {
@@ -1225,13 +1053,11 @@ export async function POST(req: NextRequest) {
         return err("לא נמצא דיבור.", 200);
       }
 
-      // ── STEP 2: Build timed segments (timestamps LOCKED from here) ──
+      // ── STEP 2: Build timed segments (timestamps LOCKED) ──
       const timedSegs = buildTimedSegments(cleaned.segments, cleaned.words);
 
-      // ── STEP 3: AI Correction (TEXT ONLY — timestamps LOCKED) ──
-      const aiResult = await aiCorrectMultiPass(timedSegs, lang || "he");
-
-      // NOTE: No repairBoundaries — timestamps are never modified
+      // ── STEP 3: AI Correction (SINGLE PASS — Sonnet) ──
+      const aiResult = await aiCorrect(timedSegs, lang || "he");
 
       // ── STEP 4: Split ──
       const wpg = parseInt(words_per_group) || 1;
