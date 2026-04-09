@@ -35,8 +35,8 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 
 const AI_CONFIG = {
   // Model: Sonnet for Hebrew (much better morphology understanding)
-  // Switch to "claude-haiku-4-5-20251001" for cost savings
-  model: "claude-sonnet-4-20250514",
+  // Switch to "claude-sonnet-4-20250514" for cost savings
+  model: "claude-haiku-4-5-20251001",
   maxTokens: 8192,
   timeoutMs: 45000,  // Sonnet needs slightly more time
 
