@@ -1,19 +1,18 @@
 /**
  * SubAI — Transcription API v11.0 (Async Architecture)
  *
- * CHANGES FROM v10:
+ * WHAT CHANGED FROM v10:
  * ═══════════════════════════════════════════════════════════════
- * 1. ASYNC: transcribe returns job_id immediately (no timeout!)
- * 2. Processing happens in /api/transcribe/process (separate function)
- * 3. check_job polls Supabase for results
- * 4. Works with ANY Vercel plan (even Hobby)
- * 5. Supports transcriptions of ANY length (even hours)
- * ═══════════════════════════════════════════════════════════════
+ * The LOGIC is identical. Only the ARCHITECTURE changed:
  *
- * Flow:
- *   Client → transcribe → save job → fire process → return job_id (< 1 sec)
- *   Client → check_job (poll every 3s) → return status/results
- *   Process endpoint → Modal → AI → save to DB (up to 5 min)
+ * v10 (old): Client → this file does EVERYTHING → response (timeout risk!)
+ * v11 (new): Client → this file saves job + returns job_id (< 1 sec)
+ *            → /api/transcribe/process does the heavy work in background
+ *            → Client polls check_job until done
+ *
+ * All transcription logic (Whisper, AI correction, splitting, SRT)
+ * lives in /api/transcribe/process/route.ts — unchanged.
+ * ═══════════════════════════════════════════════════════════════
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -43,9 +42,9 @@ function err(msg: string, status = 400) {
   return NextResponse.json({ error: true, message: msg }, { status });
 }
 
-// ═══════════════════════════════════════════════════════════════
-// AUTH & RATE LIMITING
-// ═══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// DATABASE — validateApiKey (unchanged from v10)
+// ══════════════════════════════════════════════════════════════
 
 async function validateApiKey(apiKey: string) {
   const { data } = await supabase
@@ -55,6 +54,10 @@ async function validateApiKey(apiKey: string) {
     .single();
   return data || null;
 }
+
+// ══════════════════════════════════════════════════════════════
+// RATE LIMITING — unchanged
+// ══════════════════════════════════════════════════════════════
 
 const rateLimits = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT = 10;
@@ -75,9 +78,9 @@ function checkRateLimit(userId: string): boolean {
   return true;
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
 // Get the base URL for internal calls
-// ═══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
 
 function getBaseUrl(req: NextRequest): string {
   if (process.env.VERCEL_URL) {
@@ -88,9 +91,9 @@ function getBaseUrl(req: NextRequest): string {
   return `${proto}://${host}`;
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
 // MAIN HANDLER
-// ═══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
 
 export async function POST(req: NextRequest) {
   try {
@@ -115,7 +118,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ─────────────────────────────────────────────
-    // ACTION: get_upload_url (unchanged)
+    // ACTION: get_upload_url (unchanged from v10)
     // ─────────────────────────────────────────────
     if (action === "get_upload_url") {
       const fileKey = `audio/${user.id}/${Date.now()}.mp3`;
@@ -130,7 +133,11 @@ export async function POST(req: NextRequest) {
     }
 
     // ─────────────────────────────────────────────
-    // ACTION: transcribe (ASYNC — returns immediately!)
+    // ACTION: transcribe (NEW — ASYNC!)
+    //
+    // Instead of doing all the work here (and risking timeout),
+    // we save the job to Supabase and trigger the process endpoint.
+    // The client gets a job_id back immediately.
     // ─────────────────────────────────────────────
     if (action === "transcribe") {
       const { download_url, file_key } = body;
@@ -164,11 +171,9 @@ export async function POST(req: NextRequest) {
       const jobId = job.id;
       console.log(`[TRANSCRIBE] Created job ${jobId} for user ${user.id}`);
 
-      // 2. Fire-and-forget: trigger the process endpoint
-      //    This is the KEY to the async pattern.
-      //    The fetch() sends the HTTP request and we DON'T await the response.
-      //    The process endpoint runs as a SEPARATE serverless function
-      //    with its own maxDuration (300s).
+      // 2. Fire-and-forget: trigger the process endpoint.
+      //    We DON'T await — the process runs as a separate serverless function
+      //    with its own maxDuration (300s = 5 minutes).
       const baseUrl = getBaseUrl(req);
       const processUrl = `${baseUrl}/api/transcribe/process`;
 
@@ -193,7 +198,11 @@ export async function POST(req: NextRequest) {
     }
 
     // ─────────────────────────────────────────────
-    // ACTION: check_job (polls Supabase for results)
+    // ACTION: check_job (NEW — polls Supabase)
+    //
+    // The client calls this every 3-5 seconds with the job_id.
+    // When status is "completed", the full results are returned
+    // in the SAME format as the old synchronous response.
     // ─────────────────────────────────────────────
     if (action === "check_job") {
       const { job_id } = body;
@@ -234,7 +243,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Job completed — return full results
-      // (same format as the old synchronous response for backward compat)
+      // SAME FORMAT as old v10 synchronous response!
       if (job.status === "completed") {
         const meta = job.result_meta || {};
         return NextResponse.json({
@@ -256,7 +265,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ─────────────────────────────────────────────
-    // ACTION: status (unchanged)
+    // ACTION: status (unchanged from v10)
     // ─────────────────────────────────────────────
     if (action === "status") {
       return NextResponse.json({
