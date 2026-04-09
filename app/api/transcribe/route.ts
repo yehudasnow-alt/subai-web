@@ -1,5 +1,12 @@
 /**
  * SubAI — Transcription Engine v10.0 (Sonnet — Hebrew Language Expert)
+ * ═══════════════════════════════════════════════════════════════
+ * ASYNC PROCESSING ENDPOINT — Called internally by /api/transcribe
+ * 
+ * This file contains ALL the original transcription logic, unchanged.
+ * The only difference: it reads job params from Supabase and saves
+ * results back to Supabase, instead of doing everything in one request.
+ * ═══════════════════════════════════════════════════════════════
  *
  * CHANGES FROM v9.1:
  * ═══════════════════════════════════════════════════════════════
@@ -17,10 +24,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -28,6 +34,7 @@ const AWS_REGION = process.env.AWS_REGION || "eu-north-1";
 const S3_BUCKET = process.env.S3_BUCKET || "subai-audio";
 const MODAL_ENDPOINT = process.env.MODAL_ENDPOINT_URL!;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const PROCESS_SECRET = process.env.PROCESS_SECRET || "subai-internal-process-key";
 
 // ═══════════════════════════════════════════════════════════════
 // CONFIG — Easy to tune
@@ -60,10 +67,6 @@ const s3 = new S3Client({
   },
 });
 
-function err(msg: string, status = 400) {
-  return NextResponse.json({ error: true, message: msg }, { status });
-}
-
 interface Segment { start: number; end: number; text: string; }
 interface Word { start: number; end: number; word: string; probability?: number; }
 interface TimedSegment { start: number; end: number; text: string; words: Word[]; }
@@ -71,15 +74,6 @@ interface TimedSegment { start: number; end: number; text: string; words: Word[]
 // ══════════════════════════════════════════════════════════════
 // DATABASE (unchanged from v9.1)
 // ══════════════════════════════════════════════════════════════
-
-async function validateApiKey(apiKey: string) {
-  const { data } = await supabase
-    .from("profiles")
-    .select("id, email, plan, minutes_used, minutes_limit, subscription_status")
-    .eq("api_key", apiKey)
-    .single();
-  return data || null;
-}
 
 async function logUsage(
   userId: string, audioDur: number, lang: string, model: string,
@@ -105,6 +99,28 @@ async function deductMinutes(userId: string, mins: number) {
       await supabase.from("profiles").update({ minutes_used: (data.minutes_used || 0) + mins }).eq("id", userId);
     }
   } catch {}
+}
+
+// ══════════════════════════════════════════════════════════════
+// JOB STATUS HELPERS (NEW for async)
+// ══════════════════════════════════════════════════════════════
+
+async function updateJobStatus(jobId: string, status: string) {
+  await supabase
+    .from("transcription_jobs")
+    .update({ status })
+    .eq("id", jobId);
+}
+
+async function failJob(jobId: string, errorMessage: string) {
+  await supabase
+    .from("transcription_jobs")
+    .update({
+      status: "failed",
+      error_message: errorMessage,
+      completed_at: new Date().toISOString(),
+    })
+    .eq("id", jobId);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -923,185 +939,176 @@ function buildSrt(segs: Segment[], lang: string = "he"): string {
 }
 
 // ══════════════════════════════════════════════════════════════
-// RATE LIMITING — unchanged
-// ══════════════════════════════════════════════════════════════
-
-const rateLimits = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 10;
-const RATE_WINDOW = 60000;
-
-function checkRateLimit(userId: string): boolean {
-  const now = Date.now();
-  const entry = rateLimits.get(userId);
-  if (rateLimits.size > 1000) {
-    for (const [k, v] of rateLimits) { if (v.resetAt < now) rateLimits.delete(k); }
-  }
-  if (!entry || entry.resetAt < now) {
-    rateLimits.set(userId, { count: 1, resetAt: now + RATE_WINDOW });
-    return true;
-  }
-  if (entry.count >= RATE_LIMIT) return false;
-  entry.count++;
-  return true;
-}
-
-// ══════════════════════════════════════════════════════════════
-// MAIN HANDLER
+// MAIN HANDLER — Called internally by /api/transcribe
 // ══════════════════════════════════════════════════════════════
 
 export async function POST(req: NextRequest) {
+  let jobId: string | null = null;
+
   try {
     const body = await req.json();
-    const { api_key, action, lang, model, offset, audio_duration, caption_style, words_per_group } = body;
+    const { job_id, secret } = body;
+    jobId = job_id;
 
-    if (!api_key) return err("Missing api_key", 401);
-    if (typeof api_key !== "string" || api_key.length < 10 || api_key.length > 200) {
-      return err("Invalid API key format", 401);
+    // Security: only allow internal calls
+    if (secret !== PROCESS_SECRET) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const user = await validateApiKey(api_key);
-    if (!user) return err("Invalid API key", 401);
-
-    const remaining = (user.minutes_limit || 0) - (user.minutes_used || 0);
-    if (remaining <= 0) return err("נגמרה המכסה. שדרג תוכנית.", 403);
-
-    if (action === "transcribe" || action === "get_upload_url") {
-      if (!checkRateLimit(user.id)) {
-        return err("יותר מדי בקשות. נסה שוב בעוד דקה.", 429);
-      }
+    if (!job_id) {
+      return NextResponse.json({ error: "Missing job_id" }, { status: 400 });
     }
 
-    if (action === "get_upload_url") {
-      const fileKey = `audio/${user.id}/${Date.now()}.mp3`;
-      const putCmd = new PutObjectCommand({ Bucket: S3_BUCKET, Key: fileKey, ContentType: "audio/mpeg" });
-      const uploadUrl = await getSignedUrl(s3, putCmd, { expiresIn: 300 });
-      const getCmd = new GetObjectCommand({ Bucket: S3_BUCKET, Key: fileKey });
-      const downloadUrl = await getSignedUrl(s3, getCmd, { expiresIn: 3600 });
-      return NextResponse.json({
-        upload_url: uploadUrl, download_url: downloadUrl,
-        file_key: fileKey, remaining_minutes: remaining,
-      });
+    // Fetch the job from DB
+    const { data: job, error: jobErr } = await supabase
+      .from("transcription_jobs")
+      .select("*")
+      .eq("id", job_id)
+      .single();
+
+    if (jobErr || !job) {
+      console.error("[PROCESS] Job not found:", job_id);
+      return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
 
-    if (action === "transcribe") {
-      const { download_url, file_key } = body;
-      if (!download_url) return err("Missing download_url");
-      const audioDur = audio_duration || 0;
-      if (Math.ceil((audioDur / 60) * 10) / 10 > remaining) return err("לא מספיק דקות.", 403);
-      if (audioDur > 3600) return err("מקסימום 60 דקות לתמלול בודד.", 400);
-
-      // ── STEP 1: Modal Whisper ──
-      // NOTE: Update your Modal endpoint to use ivrit-ai/whisper-large-v3-ct2
-      // with the optimized parameters (see analysis.md)
-      console.log("[MODAL] Sending to Whisper...");
-      const t0 = Date.now();
-
-      const modalRes = await fetch(MODAL_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          audio_url: download_url,
-          lang: lang || "he",
-          // NEW: Pass optimized config to Modal
-          beam_size: 5,
-          best_of: 5,
-          vad_filter: true,
-          initial_prompt: lang === "he"
-            ? "שלום, זהו תמלול מקצועי בעברית תקנית. סימני פיסוק: נקודה, פסיק, סימן שאלה. קיצורים: רמב\"ם, רש\"י, צה\"ל, בג\"ץ, ד\"ר, עו\"ד. ביטויים: ברוך השם, בעזרת השם, חס ושלום, יישר כוח."
-            : undefined,
-        }),
-      });
-
-      if (!modalRes.ok) {
-        const me = await modalRes.text();
-        console.error("[MODAL] Error:", me);
-        await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "failed", 0, 0, me);
-        return err("שגיאת תמלול.", 502);
-      }
-
-      const mr = await modalRes.json();
-      const whisperMs = Date.now() - t0;
-
-      if (mr.error) {
-        await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "failed", 0, 0, mr.error);
-        return err("שגיאת תמלול: " + mr.error, 500);
-      }
-
-      console.log(`[MODAL] Done ${whisperMs}ms — ${mr.segments?.length || 0} segs, ${mr.words?.length || 0} words`);
-
-      const rawSegs: Segment[] = (mr.segments || []).map((s: any) => ({
-        start: s.start, end: s.end, text: (s.text || "").trim(),
-      }));
-      const rawWords: Word[] = (mr.words || []).map((w: any) => ({
-        start: w.start, end: w.end, word: (w.word || "").trim(),
-        probability: w.probability,
-      }));
-
-      if (rawSegs.length === 0) {
-        await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "empty", 0, 0);
-        return err("לא נמצא דיבור.", 200);
-      }
-
-      // ── STEP 1.5: Filter hallucinations ──
-      const hePrompt = lang === "he"
-        ? "שלום, זהו תמלול מקצועי בעברית תקנית. סימני פיסוק: נקודה, פסיק, סימן שאלה. שמות אנשים, מקומות ומונחים מקצועיים נכתבים במדויק."
-        : "";
-      const cleaned = filterHallucinations(rawSegs, rawWords, hePrompt);
-
-      if (cleaned.segments.length === 0) {
-        await logUsage(user.id, audioDur, lang || "he", "whisper-large-v3", "empty", 0, 0);
-        return err("לא נמצא דיבור.", 200);
-      }
-
-      // ── STEP 2: Build timed segments (timestamps LOCKED) ──
-      const timedSegs = buildTimedSegments(cleaned.segments, cleaned.words);
-
-      // ── STEP 3: AI Correction (SINGLE PASS — Sonnet) ──
-      const aiResult = await aiCorrect(timedSegs, lang || "he");
-
-      // ── STEP 4: Split ──
-      const wpg = parseInt(words_per_group) || 1;
-      const final = applySplitting(aiResult.segments, caption_style || "auto", wpg);
-
-      // ── STEP 5: Build SRT ──
-      const srt = buildSrt(final, lang || "he");
-
-      // ── STEP 6: Log & deduct ──
-      const totalMs = Date.now() - t0;
-      const mins = await logUsage(
-        user.id, audioDur, lang || "he", "whisper-large-v3",
-        "completed", final.length, totalMs / 1000,
-      );
-      await deductMinutes(user.id, mins);
-
-      if (file_key) {
-        s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: file_key })).catch(() => {});
-      }
-
-      console.log(`[DONE] ${final.length} segs, ${totalMs}ms (Whisper:${whisperMs}ms, AI:${totalMs - whisperMs}ms)`);
-
-      return NextResponse.json({
-        ok: true, status: "completed", segments: final, srt,
-        language: mr.language || lang, elapsed: (totalMs / 1000).toFixed(1),
-        count: final.length, minutes_charged: mins,
-        minutes_remaining: remaining - mins, ai_correction: aiResult.method,
-      });
+    if (job.status !== "pending") {
+      console.log(`[PROCESS] Job ${job_id} already ${job.status}, skipping`);
+      return NextResponse.json({ ok: true, status: job.status });
     }
 
-    if (action === "check_job") {
-      return NextResponse.json({ ok: true, status: "completed", message: "Modal is synchronous" });
+    const t0 = Date.now();
+    const { user_id, download_url, file_key, lang, audio_duration, caption_style, words_per_group } = job;
+    const audioDur = audio_duration || 0;
+
+    // ── STEP 1: Modal Whisper ──
+    // NOTE: Update your Modal endpoint to use ivrit-ai/whisper-large-v3-ct2
+    // with the optimized parameters (see analysis.md)
+    await updateJobStatus(job_id, "whisper");
+    console.log(`[PROCESS] Job ${job_id} — Sending to Whisper...`);
+
+    const modalRes = await fetch(MODAL_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        audio_url: download_url,
+        lang: lang || "he",
+        // NEW: Pass optimized config to Modal
+        beam_size: 5,
+        best_of: 5,
+        vad_filter: true,
+        initial_prompt: lang === "he"
+          ? "שלום, זהו תמלול מקצועי בעברית תקנית. סימני פיסוק: נקודה, פסיק, סימן שאלה. קיצורים: רמב\"ם, רש\"י, צה\"ל, בג\"ץ, ד\"ר, עו\"ד. ביטויים: ברוך השם, בעזרת השם, חס ושלום, יישר כוח."
+          : undefined,
+      }),
+    });
+
+    if (!modalRes.ok) {
+      const me = await modalRes.text();
+      console.error("[PROCESS] Modal error:", me);
+      await logUsage(user_id, audioDur, lang || "he", "whisper-large-v3", "failed", 0, 0, me);
+      await failJob(job_id, "שגיאת תמלול.");
+      return NextResponse.json({ ok: false, error: me }, { status: 502 });
     }
 
-    if (action === "status") {
-      return NextResponse.json({
-        ok: true, plan: user.plan, minutes_used: user.minutes_used,
-        minutes_limit: user.minutes_limit, minutes_remaining: remaining,
-      });
+    const mr = await modalRes.json();
+    const whisperMs = Date.now() - t0;
+
+    if (mr.error) {
+      await logUsage(user_id, audioDur, lang || "he", "whisper-large-v3", "failed", 0, 0, mr.error);
+      await failJob(job_id, "שגיאת תמלול: " + mr.error);
+      return NextResponse.json({ ok: false, error: mr.error }, { status: 500 });
     }
 
-    return err("Unknown action");
+    console.log(`[PROCESS] Whisper done ${whisperMs}ms — ${mr.segments?.length || 0} segs, ${mr.words?.length || 0} words`);
+
+    const rawSegs: Segment[] = (mr.segments || []).map((s: any) => ({
+      start: s.start, end: s.end, text: (s.text || "").trim(),
+    }));
+    const rawWords: Word[] = (mr.words || []).map((w: any) => ({
+      start: w.start, end: w.end, word: (w.word || "").trim(),
+      probability: w.probability,
+    }));
+
+    if (rawSegs.length === 0) {
+      await logUsage(user_id, audioDur, lang || "he", "whisper-large-v3", "empty", 0, 0);
+      await failJob(job_id, "לא נמצא דיבור.");
+      return NextResponse.json({ ok: false, error: "No speech found" });
+    }
+
+    // ── STEP 1.5: Filter hallucinations ──
+    const hePrompt = lang === "he"
+      ? "שלום, זהו תמלול מקצועי בעברית תקנית. סימני פיסוק: נקודה, פסיק, סימן שאלה. שמות אנשים, מקומות ומונחים מקצועיים נכתבים במדויק."
+      : "";
+    const cleaned = filterHallucinations(rawSegs, rawWords, hePrompt);
+
+    if (cleaned.segments.length === 0) {
+      await logUsage(user_id, audioDur, lang || "he", "whisper-large-v3", "empty", 0, 0);
+      await failJob(job_id, "לא נמצא דיבור.");
+      return NextResponse.json({ ok: false, error: "No speech found" });
+    }
+
+    // ── STEP 2: Build timed segments (timestamps LOCKED) ──
+    const timedSegs = buildTimedSegments(cleaned.segments, cleaned.words);
+
+    // ── STEP 3: AI Correction (SINGLE PASS — Sonnet) ──
+    await updateJobStatus(job_id, "ai_correction");
+    const aiResult = await aiCorrect(timedSegs, lang || "he");
+
+    // ── STEP 4: Split ──
+    const wpg = parseInt(words_per_group) || 1;
+    const final = applySplitting(aiResult.segments, caption_style || "auto", wpg);
+
+    // ── STEP 5: Build SRT ──
+    const srt = buildSrt(final, lang || "he");
+
+    // ── STEP 6: Log & deduct ──
+    const totalMs = Date.now() - t0;
+    const mins = await logUsage(
+      user_id, audioDur, lang || "he", "whisper-large-v3",
+      "completed", final.length, totalMs / 1000,
+    );
+    await deductMinutes(user_id, mins);
+
+    // Get remaining minutes for response
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("minutes_used, minutes_limit")
+      .eq("id", user_id)
+      .single();
+    const remaining = profile ? (profile.minutes_limit || 0) - (profile.minutes_used || 0) : 0;
+
+    // ── STEP 7: Save results to Supabase ──
+    await supabase
+      .from("transcription_jobs")
+      .update({
+        status: "completed",
+        srt,
+        segments: final,
+        result_meta: {
+          language: mr.language || lang,
+          elapsed: (totalMs / 1000).toFixed(1),
+          count: final.length,
+          minutes_charged: mins,
+          minutes_remaining: remaining,
+          ai_correction: aiResult.method,
+        },
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", job_id);
+
+    if (file_key) {
+      s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: file_key })).catch(() => {});
+    }
+
+    console.log(`[DONE] Job ${job_id} — ${final.length} segs, ${totalMs}ms (Whisper:${whisperMs}ms, AI:${totalMs - whisperMs}ms)`);
+
+    return NextResponse.json({ ok: true, status: "completed" });
+
   } catch (e: any) {
-    console.error("API Error:", e);
-    return err("שגיאה פנימית", 500);
+    console.error("[PROCESS] Fatal error:", e);
+    if (jobId) {
+      await failJob(jobId, "שגיאה פנימית: " + (e.message || "unknown")).catch(() => {});
+    }
+    return NextResponse.json({ error: "שגיאה פנימית" }, { status: 500 });
   }
 }
