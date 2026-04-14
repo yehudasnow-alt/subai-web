@@ -485,7 +485,7 @@ const http   = require('http');
 
 // ── Configuration ──
 const API_BASE='https://www.subai.co.il';
-const PLUGIN_VERSION = '4.0.0';
+const PLUGIN_VERSION = '4.3.0';
 const EXPORT_TIMEOUT = 120000;   // 2 minutes max for audio export
 const IO_POLL_INTERVAL = 2000;   // In/Out refresh interval
 const LOGIN_POLL_INTERVAL = 2000;
@@ -1294,6 +1294,49 @@ async function runAll() {
     }
 
     if (result.error) { finishRun(false, result.message || 'שגיאת תמלול'); return; }
+
+    // ── v11 async pipeline: poll check_job until completed ──
+    if (result.status === 'processing' && result.job_id) {
+        const jobId = result.job_id;
+        const pollStart = Date.now();
+        const pollMax = 300000;   // 5 minutes
+        const pollDelay = 3000;   // 3 seconds
+        const statusMsgs = {
+            pending: 'ממתין בתור...',
+            whisper: 'מתמלל עם Whisper...',
+            ai_correction: 'מתקן עם AI...'
+        };
+        while (true) {
+            if (CANCEL) { finishRun(false, 'בוטל.'); return; }
+            if (Date.now() - pollStart > pollMax) {
+                finishRun(false, 'התמלול לקח יותר מדי זמן');
+                return;
+            }
+            await new Promise(r => setTimeout(r, pollDelay));
+            let poll;
+            try {
+                poll = await apiPost('/api/transcribe', {
+                    api_key: API_KEY,
+                    action:  'check_job',
+                    job_id:  jobId
+                });
+            } catch (e) {
+                continue; // transient — retry
+            }
+            if (poll.error || poll.status === 'failed') {
+                finishRun(false, poll.message || 'שגיאת תמלול');
+                return;
+            }
+            if (poll.status === 'completed') {
+                result = poll;
+                break;
+            }
+            const pct = poll.status === 'whisper' ? 60
+                      : poll.status === 'ai_correction' ? 78
+                      : 50;
+            setProgress(pct, statusMsgs[poll.status] || 'מעבד...', '');
+        }
+    }
 
     const segments = result.segments || [];
     const srt      = result.srt || '';
