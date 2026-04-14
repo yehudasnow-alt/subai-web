@@ -84,12 +84,26 @@ function checkRateLimit(userId: string): boolean {
 // ══════════════════════════════════════════════════════════════
 
 function getBaseUrl(req: NextRequest): string {
+  // CRITICAL: Use the request's own host first, NOT process.env.VERCEL_URL.
+  //
+  // VERCEL_URL points to the deployment-specific *.vercel.app URL
+  // (e.g. subai-gg8rjsukv-yehudasnow-alts-projects.vercel.app), which is
+  // protected by Vercel SSO Authentication on Hobby/Free plan team projects.
+  // A fetch() to that URL returns an SSO login page instead of invoking
+  // the target route — the inner /api/transcribe/process is never reached.
+  //
+  // The custom domain (www.subai.co.il) is NOT protected and routes
+  // requests normally, so we use whatever host the original request came in on.
+  const host = req.headers.get("host");
+  if (host) {
+    const proto = req.headers.get("x-forwarded-proto") || "https";
+    return `${proto}://${host}`;
+  }
+  // Last-ditch fallbacks (should never trigger in production)
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL}`;
   }
-  const proto = req.headers.get("x-forwarded-proto") || "https";
-  const host = req.headers.get("host") || "localhost:3000";
-  return `${proto}://${host}`;
+  return "http://localhost:3000";
 }
 
 // ══════════════════════════════════════════════════════════════
