@@ -16,6 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { createClient } from "@supabase/supabase-js";
 import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -172,21 +173,26 @@ export async function POST(req: NextRequest) {
       console.log(`[TRANSCRIBE] Created job ${jobId} for user ${user.id}`);
 
       // 2. Fire-and-forget: trigger the process endpoint.
-      //    We DON'T await — the process runs as a separate serverless function
-      //    with its own maxDuration (300s = 5 minutes).
+      //    We DON'T await the response — the process runs as a separate
+      //    serverless function with its own maxDuration (300s = 5 minutes).
+      //    BUT — on Vercel serverless we MUST wrap the fetch in waitUntil(),
+      //    otherwise the runtime kills the dangling fetch the moment this
+      //    function returns, and /api/transcribe/process is never invoked.
       const baseUrl = getBaseUrl(req);
       const processUrl = `${baseUrl}/api/transcribe/process`;
 
-      fetch(processUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          job_id: jobId,
-          secret: PROCESS_SECRET,
-        }),
-      }).catch((e) => {
-        console.error(`[TRANSCRIBE] Failed to trigger process for job ${jobId}:`, e);
-      });
+      waitUntil(
+        fetch(processUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            job_id: jobId,
+            secret: PROCESS_SECRET,
+          }),
+        }).catch((e) => {
+          console.error(`[TRANSCRIBE] Failed to trigger process for job ${jobId}:`, e);
+        })
+      );
 
       // 3. Return immediately (< 1 second!)
       return NextResponse.json({
