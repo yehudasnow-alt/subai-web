@@ -1,17 +1,11 @@
 /**
- * SubAI — Transcription API v11.0 (Async Architecture)
+ * SubAI — Transcription API v11.1 (Async Architecture — Production Ready)
  *
- * WHAT CHANGED FROM v10:
+ * v11.0 → v11.1 CHANGES:
  * ═══════════════════════════════════════════════════════════════
- * The LOGIC is identical. Only the ARCHITECTURE changed:
- *
- * v10 (old): Client → this file does EVERYTHING → response (timeout risk!)
- * v11 (new): Client → this file saves job + returns job_id (< 1 sec)
- *            → /api/transcribe/process does the heavy work in background
- *            → Client polls check_job until done
- *
- * All transcription logic (Whisper, AI correction, splitting, SRT)
- * lives in /api/transcribe/process/route.ts — unchanged.
+ * 1. Rate limiter: in-memory Map → Supabase query (works cross-container)
+ * 2. getBaseUrl: prefers request host over VERCEL_URL (avoids SSO block)
+ * 3. waitUntil: ensures fire-and-forget fetch survives function return
  * ═══════════════════════════════════════════════════════════════
  */
 
@@ -28,7 +22,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const AWS_REGION = process.env.AWS_REGION || "eu-north-1";
 const S3_BUCKET = process.env.S3_BUCKET || "subai-audio";
-const PROCESS_SECRET = process.env.PROCESS_SECRET || "subai-internal-process-key";
+const PROCESS_SECRET = process.env.PROCESS_SECRET!;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 const s3 = new S3Client({
@@ -44,7 +38,7 @@ function err(msg: string, status = 400) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// DATABASE — validateApiKey (unchanged from v10)
+// DATABASE — validateApiKey
 // ══════════════════════════════════════════════════════════════
 
 async function validateApiKey(apiKey: string) {
@@ -57,26 +51,28 @@ async function validateApiKey(apiKey: string) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// RATE LIMITING — unchanged
+// RATE LIMITING — Supabase-based (works across serverless containers)
+//
+// Counts active jobs in the DB per user. If a user already has
+// MAX_CONCURRENT jobs running, they must wait. This prevents abuse
+// and protects the Modal GPU budget.
 // ══════════════════════════════════════════════════════════════
 
-const rateLimits = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 10;
-const RATE_WINDOW = 60000;
+const MAX_CONCURRENT_JOBS = 3;
 
-function checkRateLimit(userId: string): boolean {
-  const now = Date.now();
-  const entry = rateLimits.get(userId);
-  if (rateLimits.size > 1000) {
-    for (const [k, v] of rateLimits) { if (v.resetAt < now) rateLimits.delete(k); }
-  }
-  if (!entry || entry.resetAt < now) {
-    rateLimits.set(userId, { count: 1, resetAt: now + RATE_WINDOW });
+async function checkRateLimit(userId: string): Promise<boolean> {
+  const { count, error } = await supabase
+    .from("transcription_jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .in("status", ["pending", "whisper", "ai_correction"]);
+
+  if (error) {
+    console.warn("[RATE] DB check failed, allowing:", error.message);
     return true;
   }
-  if (entry.count >= RATE_LIMIT) return false;
-  entry.count++;
-  return true;
+
+  return (count || 0) < MAX_CONCURRENT_JOBS;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -84,22 +80,14 @@ function checkRateLimit(userId: string): boolean {
 // ══════════════════════════════════════════════════════════════
 
 function getBaseUrl(req: NextRequest): string {
-  // CRITICAL: Use the request's own host first, NOT process.env.VERCEL_URL.
-  //
-  // VERCEL_URL points to the deployment-specific *.vercel.app URL
-  // (e.g. subai-gg8rjsukv-yehudasnow-alts-projects.vercel.app), which is
-  // protected by Vercel SSO Authentication on Hobby/Free plan team projects.
-  // A fetch() to that URL returns an SSO login page instead of invoking
-  // the target route — the inner /api/transcribe/process is never reached.
-  //
-  // The custom domain (www.subai.co.il) is NOT protected and routes
-  // requests normally, so we use whatever host the original request came in on.
+  // Use the request's own host first, NOT process.env.VERCEL_URL.
+  // VERCEL_URL points to the deployment-specific *.vercel.app URL which is
+  // protected by Vercel SSO on team projects. The custom domain is not.
   const host = req.headers.get("host");
   if (host) {
     const proto = req.headers.get("x-forwarded-proto") || "https";
     return `${proto}://${host}`;
   }
-  // Last-ditch fallbacks (should never trigger in production)
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL}`;
   }
@@ -127,13 +115,13 @@ export async function POST(req: NextRequest) {
     if (remaining <= 0) return err("נגמרה המכסה. שדרג תוכנית.", 403);
 
     if (action === "transcribe" || action === "get_upload_url") {
-      if (!checkRateLimit(user.id)) {
+      if (!await checkRateLimit(user.id)) {
         return err("יותר מדי בקשות. נסה שוב בעוד דקה.", 429);
       }
     }
 
     // ─────────────────────────────────────────────
-    // ACTION: get_upload_url (unchanged from v10)
+    // ACTION: get_upload_url
     // ─────────────────────────────────────────────
     if (action === "get_upload_url") {
       const fileKey = `audio/${user.id}/${Date.now()}.mp3`;
@@ -148,11 +136,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ─────────────────────────────────────────────
-    // ACTION: transcribe (NEW — ASYNC!)
-    //
-    // Instead of doing all the work here (and risking timeout),
-    // we save the job to Supabase and trigger the process endpoint.
-    // The client gets a job_id back immediately.
+    // ACTION: transcribe (ASYNC)
     // ─────────────────────────────────────────────
     if (action === "transcribe") {
       const { download_url, file_key } = body;
@@ -186,12 +170,7 @@ export async function POST(req: NextRequest) {
       const jobId = job.id;
       console.log(`[TRANSCRIBE] Created job ${jobId} for user ${user.id}`);
 
-      // 2. Fire-and-forget: trigger the process endpoint.
-      //    We DON'T await the response — the process runs as a separate
-      //    serverless function with its own maxDuration (300s = 5 minutes).
-      //    BUT — on Vercel serverless we MUST wrap the fetch in waitUntil(),
-      //    otherwise the runtime kills the dangling fetch the moment this
-      //    function returns, and /api/transcribe/process is never invoked.
+      // 2. Fire-and-forget via waitUntil (keeps the fetch alive after return)
       const baseUrl = getBaseUrl(req);
       const processUrl = `${baseUrl}/api/transcribe/process`;
 
@@ -208,7 +187,7 @@ export async function POST(req: NextRequest) {
         })
       );
 
-      // 3. Return immediately (< 1 second!)
+      // 3. Return immediately
       return NextResponse.json({
         ok: true,
         status: "processing",
@@ -218,11 +197,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ─────────────────────────────────────────────
-    // ACTION: check_job (NEW — polls Supabase)
-    //
-    // The client calls this every 3-5 seconds with the job_id.
-    // When status is "completed", the full results are returned
-    // in the SAME format as the old synchronous response.
+    // ACTION: check_job (plugin polls this)
     // ─────────────────────────────────────────────
     if (action === "check_job") {
       const { job_id } = body;
@@ -232,14 +207,13 @@ export async function POST(req: NextRequest) {
         .from("transcription_jobs")
         .select("*")
         .eq("id", job_id)
-        .eq("user_id", user.id)  // Security: only owner can check
+        .eq("user_id", user.id)
         .single();
 
       if (jobErr || !job) {
         return err("Job not found", 404);
       }
 
-      // Job still processing — return status with Hebrew message
       if (["pending", "whisper", "ai_correction"].includes(job.status)) {
         return NextResponse.json({
           ok: true,
@@ -251,7 +225,6 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Job failed
       if (job.status === "failed") {
         return NextResponse.json({
           ok: false,
@@ -262,8 +235,6 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Job completed — return full results
-      // SAME FORMAT as old v10 synchronous response!
       if (job.status === "completed") {
         const meta = job.result_meta || {};
         return NextResponse.json({
@@ -285,7 +256,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ─────────────────────────────────────────────
-    // ACTION: status (unchanged from v10)
+    // ACTION: status
     // ─────────────────────────────────────────────
     if (action === "status") {
       return NextResponse.json({
