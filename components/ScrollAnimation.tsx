@@ -59,10 +59,12 @@ export default function ScrollAnimation() {
     });
     imagesRef.current = images;
 
+    // Map first 2500px of scroll to all frames
+    const SCROLL_RANGE = 2500;
+
     const handleScroll = () => {
       const scrollY = window.scrollY;
-      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-      const progress = Math.max(0, Math.min(1, scrollY / maxScroll));
+      const progress = Math.max(0, Math.min(1, scrollY / SCROLL_RANGE));
       const newFrame = Math.round(progress * (TOTAL_FRAMES - 1));
       if (newFrame !== frameRef.current) {
         frameRef.current = newFrame;
@@ -77,6 +79,9 @@ export default function ScrollAnimation() {
 
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", () => drawFrame(frameRef.current));
+    
+    // Draw first frame on load
+    handleScroll();
 
     return () => {
       window.removeEventListener("scroll", onScroll);
