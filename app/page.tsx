@@ -60,16 +60,16 @@ export default function Home() {
           ].map(([icon,title,desc],i)=>(
             <div key={i} className="feat-card glass-card">
               <div className="feat-icon" style={{
-                width: 64, height: 64, borderRadius: 16,
+                width: 90, height: 90,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                marginBottom: 12
+                marginBottom: 8, overflow: "hidden"
               }}>
                 <img
                   src={icon}
                   alt={title}
                   style={{
-                    width: 64,
-                    height: 64,
+                    width: 130,
+                    height: 130,
                     objectFit: "contain",
                     filter: "drop-shadow(0 4px 12px rgba(124,58,237,0.3))"
                   }}
