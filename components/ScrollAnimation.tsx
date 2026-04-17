@@ -54,7 +54,7 @@ export default function ScrollAnimation() {
     function onScroll() {
       const scrollY = document.documentElement.scrollTop || document.body.scrollTop || 0;
       const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-      const scrollZone = docHeight * 0.18; // Only first 33% of page
+      const scrollZone = docHeight * 0.10; // Only first 33% of page
       const progress = Math.max(0, Math.min(1, scrollY / scrollZone));
       const frame = Math.min(TOTAL_FRAMES - 1, Math.round(progress * (TOTAL_FRAMES - 1)));
       drawFrame(frame);
