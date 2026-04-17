@@ -1,4 +1,5 @@
 "use client";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Nav from "../components/Nav";
@@ -15,7 +16,7 @@ export default function Home() {
 
       {/* ── Hero ── */}
       <section className="hero">
-        <div style={a(0)}><div className="hero-badge">✨ Whisper AI + Claude — תמלול וטקסט מושלמים</div></div>
+        <div style={a(0)}><div className="hero-badge"><img src="/icons/sparkles.png" alt="sparkles" style={{width:20,height:20,objectFit:"contain",verticalAlign:"middle",marginLeft:6}} /> Whisper AI + Claude — תמלול וטקסט מושלמים</div></div>
         <h1 style={a(0.1)}>כתוביות AI בעברית<br /><span className="grad-text">ישירות בפרמייר פרו</span></h1>
         <p className="hero-sub" style={a(0.2)}>תמלול אוטומטי בעברית, עם דיוק מרשים.<br />הכתוביות נכנסות ישירות לתוכנה — לחיצה אחת וזהו.</p>
         <div className="hero-btns" style={a(0.3)}>
@@ -50,21 +51,30 @@ export default function Home() {
         <p className="sec-sub">הכלי הכי מתקדם לכתוביות בעברית — מבוסס AI מהדור האחרון</p>
         <div className="feat-grid">
           {[
-            ["🎯","דיוק שאין כמותו","Whisper large-v3 הוא המודל הכי מדויק בעולם. הוספנו שכבת AI של Claude לתיקון דקדוק ופיסוק."],
-            ["⚡","מהיר ויעיל","תמלול בענן על GPU ייעודי. הכתוביות מוכנות תוך שניות."],
-            ["🔤","עברית ברמה אחרת","אופטימיזציה מיוחדת לעברית — פיסוק מדויק, זיהוי שמות, ומילים מקצועיות."],
-            ["🎬","בתוך Premiere","פלאגין מובנה. סמן In/Out, לחץ כפתור — ייצוא ישר לתוכנה."],
-            ["📱","מצב TikTok","כתוביות מילה-מילה — מושלם ל-Reels, TikTok, Shorts ו-YouTube."],
-            ["🤖","תיקון AI אוטומטי","Claude AI עובר על כל תמלול ומתקן שגיאות, מילים כפולות ופיסוק."]
+            ["/icons/target.png","דיוק שאין כמותו","Whisper large-v3 הוא המודל הכי מדויק בעולם. הוספנו שכבת AI של Claude לתיקון דקדוק ופיסוק."],
+            ["/icons/lightning.png","מהיר ויעיל","תמלול בענן על GPU ייעודי. הכתוביות מוכנות תוך שניות."],
+            ["/icons/letters.png","עברית ברמה אחרת","אופטימיזציה מיוחדת לעברית — פיסוק מדויק, זיהוי שמות, ומילים מקצועיות."],
+            ["/icons/clapperboard.png","בתוך Premiere","פלאגין מובנה. סמן In/Out, לחץ כפתור — ייצוא ישר לתוכנה."],
+            ["/icons/phone.png","מצב TikTok","כתוביות מילה-מילה — מושלם ל-Reels, TikTok, Shorts ו-YouTube."],
+            ["/icons/robot.png","תיקון AI אוטומטי","Claude AI עובר על כל תמלול ומתקן שגיאות, מילים כפולות ופיסוק."]
           ].map(([icon,title,desc],i)=>(
             <div key={i} className="feat-card glass-card">
               <div className="feat-icon" style={{
-                width: 52, height: 52, borderRadius: 16,
-                background: "linear-gradient(135deg, #7c3aed, #a855f7, #c084fc)",
+                width: 64, height: 64, borderRadius: 16,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 24, boxShadow: "0 4px 14px rgba(124,58,237,0.25)",
                 marginBottom: 12
-              }}>{icon}</div>
+              }}>
+                <img
+                  src={icon}
+                  alt={title}
+                  style={{
+                    width: 64,
+                    height: 64,
+                    objectFit: "contain",
+                    filter: "drop-shadow(0 4px 12px rgba(124,58,237,0.3))"
+                  }}
+                />
+              </div>
               <div className="feat-title">{title}</div>
               <div className="feat-desc">{desc}</div>
             </div>
