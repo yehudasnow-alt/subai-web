@@ -82,7 +82,7 @@ export default function Dashboard() {
       <div className="mesh-bg"><div className="blob b1" /><div className="blob b2" /><div className="blob b3" /></div>
       <Nav />
       <div className="dash-content" style={{ paddingTop: 100 }}>
-        <h1 className="dash-h1">שלום, {displayName} <img src="/icons/wave-hand.png" alt="wave" style={{ width: 36, height: 36, objectFit: "contain", verticalAlign: "middle", marginRight: 4 }} /></h1>
+        <h1 className="dash-h1">שלום, {displayName} <span style={{ display: "inline-block", width: 42, height: 42, overflow: "hidden", verticalAlign: "middle", marginRight: 4 }}><img src="/icons/wave-hand.png" alt="wave" style={{ width: 62, height: 62, objectFit: "contain", marginTop: -10, marginRight: -10 }} /></span></h1>
 
         {/* ── Plan & Usage ── */}
         <div className="plan-card glass-card" style={{ borderRadius: 24 }}>
@@ -154,7 +154,7 @@ export default function Dashboard() {
         {/* ── Guide ── */}
         <div ref={guideRef} style={{ marginTop: 48 }}>
           <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 20, color: "#1a1a2e" }}>
-            <img src="/icons/rocket.png" alt="rocket" style={{ width: 28, height: 28, objectFit: "contain", verticalAlign: "middle", marginLeft: 6 }} /> מתחילים בדקה
+            <span style={{ display: "inline-block", width: 32, height: 32, overflow: "hidden", verticalAlign: "middle", marginLeft: 6 }}><img src="/icons/rocket.png" alt="rocket" style={{ width: 52, height: 52, objectFit: "contain", marginTop: -10, marginRight: -10 }} /></span> מתחילים בדקה
           </h2>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {[
