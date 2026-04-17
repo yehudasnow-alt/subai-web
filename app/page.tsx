@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import Nav from "../components/Nav";
+import ScrollAnimation from "../components/ScrollAnimation";
 
 export default function Home() {
   const [v, setV] = useState(false);
@@ -15,8 +16,23 @@ export default function Home() {
       <Nav />
 
       {/* ── Hero ── */}
-      <section className="hero">
-        <div style={a(0)}><div className="hero-badge"><img src="/icons/sparkles.png" alt="sparkles" style={{width:20,height:20,objectFit:"contain",verticalAlign:"middle",marginLeft:6}} /> Whisper AI + Claude — תמלול וטקסט מושלמים</div></div>
+      <section className="hero" style={{ position: "relative" }}>
+        {/* 3D Animation - left side */}
+        <div style={{
+          position: "absolute",
+          left: 0,
+          top: "50%",
+          transform: "translateY(-50%)",
+          width: "35%",
+          height: "400px",
+          zIndex: 1,
+          opacity: v ? 0.9 : 0,
+          transition: "opacity 1.2s ease 0.4s",
+        }}>
+          <ScrollAnimation />
+        </div>
+
+        <div style={a(0)}><div className="hero-badge"><span style={{display:"inline-block",width:24,height:24,overflow:"hidden",verticalAlign:"middle",marginLeft:6}}><img src="/icons/sparkles.png" alt="sparkles" style={{width:40,height:40,objectFit:"contain",marginTop:-8,marginRight:-8}} /></span> Whisper AI + Claude — תמלול וטקסט מושלמים</div></div>
         <h1 style={a(0.1)}>כתוביות AI בעברית<br /><span className="grad-text">ישירות בפרמייר פרו</span></h1>
         <p className="hero-sub" style={a(0.2)}>תמלול אוטומטי בעברית, עם דיוק מרשים.<br />הכתוביות נכנסות ישירות לתוכנה — לחיצה אחת וזהו.</p>
         <div className="hero-btns" style={a(0.3)}>
