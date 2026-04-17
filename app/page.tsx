@@ -20,11 +20,11 @@ export default function Home() {
         {/* 3D Animation - left side */}
         <div style={{
           position: "absolute",
-          left: "-22%",
-          top: "45%",
-          transform: "translateY(-50%) rotate(-12deg)",
-          width: "60%",
-          height: "660px",
+          left: "-18%",
+          top: "60%",
+          transform: "translateY(-40%) rotate(-12deg)",
+          width: "55%",
+          height: "600px",
           zIndex: 1,
           opacity: v ? 0.85 : 0,
           transition: "opacity 1.2s ease 0.4s",
