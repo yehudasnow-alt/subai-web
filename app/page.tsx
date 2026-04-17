@@ -11,17 +11,23 @@ export default function Home() {
   const a = (d: number) => ({ opacity: v ? 1 : 0, transform: v ? "translateY(0)" : "translateY(40px)", transition: `all 0.9s cubic-bezier(0.16,1,0.3,1) ${d}s` });
 
   return (
-    <div className="page-wrap">
+    <div className="page-wrap" style={{ overflowX: "clip" }}>
+      <style>{`
+        @media (max-width: 768px) {
+          .scroll-3d-wrap { display: none !important; }
+        }
+        .hero { overflow: visible !important; }
+      `}</style>
       <div className="mesh-bg"><div className="blob b1" /><div className="blob b2" /><div className="blob b3" /><div className="blob b4" /></div>
       <Nav />
 
       {/* ── Hero ── */}
-      <section className="hero" style={{ position: "relative" }}>
-        {/* 3D Animation - left side */}
-        <div style={{
+      <section className="hero" style={{ position: "relative", overflow: "visible" }}>
+        {/* 3D Animation - left side (desktop only) */}
+        <div className="scroll-3d-wrap" style={{
           position: "absolute",
-          left: "-18%",
-          top: "60%",
+          left: "-35%",
+          top: "55%",
           transform: "translateY(-40%) rotate(-12deg)",
           width: "55%",
           height: "600px",
