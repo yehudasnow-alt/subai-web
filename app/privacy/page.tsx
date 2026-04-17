@@ -13,7 +13,7 @@ export default function Privacy() {
           <p style={{ fontSize: 13, color: "#999", marginBottom: 32 }}>עדכון אחרון: מרץ 2026</p>
 
           <Section title="מי אנחנו">
-            SubAI הוא שירות תמלול אוטומטי בעברית המבוסס על בינה מלאכותית. השירות מופעל כפלאגין ל-Adobe Premiere Pro ודרך אתר subai-web.vercel.app.
+            SubAI הוא שירות תמלול אוטומטי בעברית המבוסס על בינה מלאכותית. השירות מופעל כפלאגין ל-Adobe Premiere Pro ודרך אתר www.subai.co.il.
           </Section>
 
           <Section title="מידע שאנחנו אוספים">
@@ -37,7 +37,7 @@ export default function Privacy() {
           </Section>
 
           <Section title="מחיקת חשבון">
-            תוכל לבקש מחיקת חשבון ומידע בכל עת על ידי פנייה אלינו בכתובת snow333b@gmail.com. נמחק את כל המידע שלך תוך 30 יום.
+            תוכל לבקש מחיקת חשבון ומידע בכל עת על ידי פנייה אלינו בכתובת yehudasnow@gmail.com. נמחק את כל המידע שלך תוך 30 יום.
           </Section>
 
           <Section title="שינויים במדיניות">
