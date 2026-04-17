@@ -6,6 +6,8 @@ import Nav from "../../components/Nav";
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 
+const icon3d = (src: string, size = 28): React.CSSProperties & { __src?: string } => ({ width: size, height: size, objectFit: "contain" as const, verticalAlign: "middle", display: "inline-block" });
+
 export default function Dashboard() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
@@ -38,7 +40,12 @@ export default function Dashboard() {
       <div className="mesh-bg"><div className="blob b1" /><div className="blob b2" /></div>
       <Nav />
       <div style={{ minHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", zIndex: 1 }}>
-        <div className="glass-card" style={{ padding: 40, textAlign: "center" }}><div style={{ fontSize: 28, marginBottom: 12 }}>⏳</div><div style={{ color: "#888" }}>טוען...</div></div>
+        <div className="glass-card" style={{ padding: 40, textAlign: "center" }}>
+          <div style={{ width: 48, height: 48, margin: "0 auto 12px", overflow: "hidden" }}>
+            <img src="/icons/hourglass.png" alt="טוען" style={{ width: 72, height: 72, objectFit: "contain", marginTop: -12, marginLeft: -12 }} />
+          </div>
+          <div style={{ color: "#888" }}>טוען...</div>
+        </div>
       </div>
     </div>
   );
@@ -50,14 +57,16 @@ export default function Dashboard() {
   const displayName = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email?.split("@")[0] || "";
   const currentPlan = profile?.plan || "free";
 
-  const planNames: Record<string, string> = { free: "חינמי", pro: "פרו ⭐", studio: "סטודיו 💎" };
+  const planNames: Record<string, React.ReactNode> = {
+    free: "חינמי",
+    pro: <span>פרו <img src="/icons/star.png" alt="star" style={{ width: 22, height: 22, objectFit: "contain", verticalAlign: "middle", marginRight: 2 }} /></span>,
+    studio: <span>סטודיו <img src="/icons/diamond.png" alt="diamond" style={{ width: 22, height: 22, objectFit: "contain", verticalAlign: "middle", marginRight: 2 }} /></span>,
+  };
 
-  const gradientIconStyle: React.CSSProperties = {
-    width: 48, height: 48, borderRadius: 14,
-    background: "linear-gradient(135deg, #7c3aed, #a855f7, #c084fc)",
+  const actionIconStyle: React.CSSProperties = {
+    width: 56, height: 56,
     display: "flex", alignItems: "center", justifyContent: "center",
-    fontSize: 22, marginBottom: 8,
-    boxShadow: "0 4px 14px rgba(124,58,237,0.25)",
+    marginBottom: 8, overflow: "hidden",
   };
 
   const stepNumStyle: React.CSSProperties = {
@@ -73,7 +82,7 @@ export default function Dashboard() {
       <div className="mesh-bg"><div className="blob b1" /><div className="blob b2" /><div className="blob b3" /></div>
       <Nav />
       <div className="dash-content" style={{ paddingTop: 100 }}>
-        <h1 className="dash-h1">שלום, {displayName} 👋</h1>
+        <h1 className="dash-h1">שלום, {displayName} <img src="/icons/wave-hand.png" alt="wave" style={{ width: 36, height: 36, objectFit: "contain", verticalAlign: "middle", marginRight: 4 }} /></h1>
 
         {/* ── Plan & Usage ── */}
         <div className="plan-card glass-card" style={{ borderRadius: 24 }}>
@@ -95,12 +104,16 @@ export default function Dashboard() {
         {/* ── Quick Actions ── */}
         <div className="action-grid">
           <a href="/api/download" className="action-card glass-card" style={{ borderRadius: 20, textDecoration: "none" }}>
-            <div style={gradientIconStyle}>⬇️</div>
+            <div style={actionIconStyle}>
+              <img src="/icons/download-arrow.png" alt="download" style={{ width: 80, height: 80, objectFit: "contain", filter: "drop-shadow(0 4px 10px rgba(124,58,237,0.25))" }} />
+            </div>
             <div className="ac-title">הורד פלאגין</div>
             <div className="ac-desc">התקנה ל-Adobe Premiere Pro</div>
           </a>
           <div onClick={scrollToGuide} className="action-card glass-card" style={{ borderRadius: 20, textDecoration: "none", cursor: "pointer" }}>
-            <div style={gradientIconStyle}>🚀</div>
+            <div style={actionIconStyle}>
+              <img src="/icons/rocket.png" alt="rocket" style={{ width: 80, height: 80, objectFit: "contain", filter: "drop-shadow(0 4px 10px rgba(124,58,237,0.25))" }} />
+            </div>
             <div className="ac-title">איך להתחיל?</div>
             <div className="ac-desc">מדריך מהיר ב-4 שלבים</div>
           </div>
@@ -140,7 +153,9 @@ export default function Dashboard() {
 
         {/* ── Guide ── */}
         <div ref={guideRef} style={{ marginTop: 48 }}>
-          <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 20, color: "#1a1a2e" }}>🚀 מתחילים בדקה</h2>
+          <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 20, color: "#1a1a2e" }}>
+            <img src="/icons/rocket.png" alt="rocket" style={{ width: 28, height: 28, objectFit: "contain", verticalAlign: "middle", marginLeft: 6 }} /> מתחילים בדקה
+          </h2>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {[
               ["1", "הורד והתקן", "לחץ על ״הורד פלאגין״ למעלה והרץ את ההתקנה. סגור את Premiere לפני ההתקנה."],
