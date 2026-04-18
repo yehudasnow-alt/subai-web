@@ -74,7 +74,7 @@ export default function Home() {
         <div className="scroll-3d-wrap" style={{
           position: "absolute",
           right: "-450px",
-          top: "30%",
+          top: "-10%",
           transform: "rotate(15deg)",
           width: "600px",
           height: "600px",
@@ -124,7 +124,7 @@ export default function Home() {
         <div className="scroll-3d-wrap" style={{
           position: "absolute",
           left: "-450px",
-          top: "20%",
+          top: "-20%",
           transform: "rotate(-10deg)",
           width: "600px",
           height: "600px",
@@ -148,7 +148,7 @@ export default function Home() {
         <div className="scroll-3d-wrap" style={{
           position: "absolute",
           right: "-400px",
-          top: "40%",
+          top: "0%",
           transform: "rotate(8deg)",
           width: "550px",
           height: "550px",
