@@ -36,7 +36,7 @@ export default function Home() {
           opacity: v ? 0.85 : 0,
           transition: "opacity 1.2s ease 0.4s",
         }}>
-          <ScrollAnimation />
+          <ScrollAnimation framesDir="/frames" totalFrames={96} scrollStart={0} scrollEnd={0.18} />
         </div>
 
         <div style={a(0)}><div className="hero-badge"><span style={{display:"inline-block",width:24,height:24,overflow:"hidden",verticalAlign:"middle",marginLeft:6}}><img src="/icons/sparkles.png" alt="sparkles" style={{width:40,height:40,objectFit:"contain",marginTop:-8,marginRight:-8}} /></span> Whisper AI + Claude — תמלול וטקסט מושלמים</div></div>
@@ -81,7 +81,7 @@ export default function Home() {
           zIndex: 1,
           opacity: 0.7,
         }}>
-          <ScrollAnimation framesDir="/frames2" scrollStart={0.15} scrollEnd={0.35} />
+          <ScrollAnimation framesDir="/frames2" totalFrames={96} scrollStart={0.15} scrollEnd={0.35} />
         </div>
         <h2 className="sec-title">למה SubAI?</h2>
         <p className="sec-sub">הכלי הכי מתקדם לכתוביות בעברית — מבוסס AI מהדור האחרון</p>
@@ -131,7 +131,7 @@ export default function Home() {
           zIndex: 1,
           opacity: 0.7,
         }}>
-          <ScrollAnimation framesDir="/frames3" scrollStart={0.35} scrollEnd={0.55} />
+          <ScrollAnimation framesDir="/frames3" totalFrames={105} scrollStart={0.35} scrollEnd={0.55} />
         </div>
         <h2 className="sec-title">איך זה עובד?</h2>
         <p className="sec-sub">4 שלבים פשוטים — מתמלול ועד כתוביות מוכנות</p>
@@ -155,7 +155,7 @@ export default function Home() {
           zIndex: 1,
           opacity: 0.7,
         }}>
-          <ScrollAnimation framesDir="/frames4" scrollStart={0.55} scrollEnd={0.75} />
+          <ScrollAnimation framesDir="/frames4" totalFrames={96} scrollStart={0.55} scrollEnd={0.75} />
         </div>
         <h2 className="sec-title">חבילות דקות</h2>
         <p className="sec-sub">קנה דקות. השתמש בקצב שלך. נגמר? קנה עוד.</p>
