@@ -26,7 +26,7 @@ export default function Home() {
         {/* 3D Animation - left side (desktop only) */}
         <div className="scroll-3d-wrap" style={{
           position: "absolute",
-          left: "calc(-50vw + 100px)",
+          left: "-150px",
           top: "55%",
           transform: "translateY(-40%) rotate(-12deg)",
           width: "420px",
