@@ -26,11 +26,11 @@ export default function Home() {
         {/* 3D Animation - left side (desktop only) */}
         <div className="scroll-3d-wrap" style={{
           position: "absolute",
-          left: "-150px",
-          top: "55%",
-          transform: "translateY(-40%) rotate(-12deg)",
-          width: "420px",
-          height: "420px",
+          left: "-380px",
+          top: "50%",
+          transform: "translateY(-45%) rotate(-12deg)",
+          width: "840px",
+          height: "840px",
           zIndex: 1,
           opacity: v ? 0.85 : 0,
           transition: "opacity 1.2s ease 0.4s",
