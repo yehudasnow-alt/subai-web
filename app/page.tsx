@@ -17,6 +17,7 @@ export default function Home() {
           .scroll-3d-wrap { display: none !important; }
         }
         .hero { overflow: visible !important; }
+        .section { overflow: visible !important; }
       `}</style>
       <div className="mesh-bg"><div className="blob b1" /><div className="blob b2" /><div className="blob b3" /><div className="blob b4" /></div>
       <Nav />
@@ -68,7 +69,20 @@ export default function Home() {
       </section>
 
       {/* ── Features ── */}
-      <section id="features" className="section">
+      <section id="features" className="section" style={{ position: "relative", overflow: "visible" }}>
+        {/* 3D Animation 2 - right side (desktop only) */}
+        <div className="scroll-3d-wrap" style={{
+          position: "absolute",
+          right: "-450px",
+          top: "30%",
+          transform: "rotate(15deg)",
+          width: "600px",
+          height: "600px",
+          zIndex: 1,
+          opacity: 0.7,
+        }}>
+          <ScrollAnimation framesDir="/frames2" scrollStart={0.15} scrollEnd={0.35} />
+        </div>
         <h2 className="sec-title">למה SubAI?</h2>
         <p className="sec-sub">הכלי הכי מתקדם לכתוביות בעברית — מבוסס AI מהדור האחרון</p>
         <div className="feat-grid">
@@ -105,7 +119,20 @@ export default function Home() {
       </section>
 
       {/* ── How it works ── */}
-      <section id="how" className="section">
+      <section id="how" className="section" style={{ position: "relative", overflow: "visible" }}>
+        {/* 3D Animation 3 - left side (desktop only) */}
+        <div className="scroll-3d-wrap" style={{
+          position: "absolute",
+          left: "-450px",
+          top: "20%",
+          transform: "rotate(-10deg)",
+          width: "600px",
+          height: "600px",
+          zIndex: 1,
+          opacity: 0.7,
+        }}>
+          <ScrollAnimation framesDir="/frames3" scrollStart={0.35} scrollEnd={0.55} />
+        </div>
         <h2 className="sec-title">איך זה עובד?</h2>
         <p className="sec-sub">4 שלבים פשוטים — מתמלול ועד כתוביות מוכנות</p>
         <div className="steps-wrap">
@@ -116,7 +143,20 @@ export default function Home() {
       </section>
 
       {/* ── Pricing ── */}
-      <section id="pricing" className="section">
+      <section id="pricing" className="section" style={{ position: "relative", overflow: "visible" }}>
+        {/* 3D Animation 4 - right side (desktop only) */}
+        <div className="scroll-3d-wrap" style={{
+          position: "absolute",
+          right: "-400px",
+          top: "40%",
+          transform: "rotate(8deg)",
+          width: "550px",
+          height: "550px",
+          zIndex: 1,
+          opacity: 0.7,
+        }}>
+          <ScrollAnimation framesDir="/frames4" scrollStart={0.55} scrollEnd={0.75} />
+        </div>
         <h2 className="sec-title">חבילות דקות</h2>
         <p className="sec-sub">קנה דקות. השתמש בקצב שלך. נגמר? קנה עוד.</p>
         <div className="price-grid">
