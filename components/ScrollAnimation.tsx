@@ -1,14 +1,19 @@
 "use client";
 import { useEffect, useRef } from "react";
 
-const TOTAL_FRAMES = 96;
+interface Props {
+  framesDir?: string;
+  totalFrames?: number;
+  scrollStart?: number;  // Start animation at this % of page (0-1)
+  scrollEnd?: number;    // End animation at this % of page (0-1)
+}
 
-const frameUrls = Array.from(
-  { length: TOTAL_FRAMES },
-  (_, i) => `/frames/frame-${String(i + 1).padStart(3, "0")}.webp`
-);
-
-export default function ScrollAnimation() {
+export default function ScrollAnimation({ 
+  framesDir = "/frames", 
+  totalFrames = 96,
+  scrollStart = 0,
+  scrollEnd = 0.18
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -17,10 +22,14 @@ export default function ScrollAnimation() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Preload all images
     const images: HTMLImageElement[] = [];
     let loadCount = 0;
     let currentFrame = -1;
+
+    const frameUrls = Array.from(
+      { length: totalFrames },
+      (_, i) => `${framesDir}/frame-${String(i + 1).padStart(3, "0")}.webp`
+    );
 
     function drawFrame(index: number) {
       if (index === currentFrame) return;
@@ -43,43 +52,44 @@ export default function ScrollAnimation() {
       ctx.drawImage(img, (rect.width - dw) / 2, (rect.height - dh) / 2, dw, dh);
     }
 
-    for (let i = 0; i < TOTAL_FRAMES; i++) {
+    for (let i = 0; i < totalFrames; i++) {
       const img = new Image();
       img.src = frameUrls[i];
       img.onload = () => { loadCount++; if (loadCount === 1) drawFrame(0); };
       images[i] = img;
     }
 
-    // Scroll handler — full rotation within first 33% of page
     function onScroll() {
       const scrollY = document.documentElement.scrollTop || document.body.scrollTop || 0;
       const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-      const scrollZone = docHeight * 0.18; // Only first 33% of page
-      const progress = Math.max(0, Math.min(1, scrollY / scrollZone));
-      const frame = Math.min(TOTAL_FRAMES - 1, Math.round(progress * (TOTAL_FRAMES - 1)));
+      const startPx = docHeight * scrollStart;
+      const endPx = docHeight * scrollEnd;
+      const range = endPx - startPx;
+      
+      let progress = 0;
+      if (range > 0) {
+        progress = (scrollY - startPx) / range;
+      }
+      progress = Math.max(0, Math.min(1, progress));
+      
+      const frame = Math.min(totalFrames - 1, Math.round(progress * (totalFrames - 1)));
       drawFrame(frame);
     }
 
-    // Listen on both window AND document for maximum compatibility
     window.addEventListener("scroll", onScroll, { passive: true });
     document.addEventListener("scroll", onScroll, { passive: true });
-
-    // Also listen on the page-wrap div (Next.js sometimes scrolls a container)
     const pageWrap = document.querySelector(".page-wrap");
-    if (pageWrap) {
-      pageWrap.addEventListener("scroll", onScroll, { passive: true });
-    }
+    if (pageWrap) pageWrap.addEventListener("scroll", onScroll, { passive: true });
 
-    // Initial draw + periodic check for first 2 seconds
     const checks = [0, 100, 300, 500, 1000, 2000];
-    checks.forEach(ms => setTimeout(() => { onScroll(); }, ms));
+    checks.forEach(ms => setTimeout(onScroll, ms));
 
     return () => {
       window.removeEventListener("scroll", onScroll);
       document.removeEventListener("scroll", onScroll);
       if (pageWrap) pageWrap.removeEventListener("scroll", onScroll);
     };
-  }, []);
+  }, [framesDir, totalFrames, scrollStart, scrollEnd]);
 
   return (
     <canvas
