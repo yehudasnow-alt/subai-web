@@ -12,7 +12,7 @@ const supabase = createClient(
 );
 
 const PAYME_API_KEY = process.env.PAYME_API_KEY!;
-const PAYME_API_URL = "https://ng.payme.io/api/generate-sale";
+const PAYME_API_URL = "https://live.payme.io/api/generate-sale";
 
 // Plan config — prices in agorot (1 ILS = 100 agorot)
 const PLANS: Record<string, { name: string; price: number; minutes: number }> = {
