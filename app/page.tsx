@@ -131,7 +131,7 @@ export default function Home() {
           zIndex: 1,
           opacity: 0.7,
         }}>
-          <ScrollAnimation framesDir="/frames3" totalFrames={105} scrollStart={0.18} scrollEnd={0.30} />
+          <ScrollAnimation framesDir="/frames3" totalFrames={105} scrollStart={0.22} scrollEnd={0.34} />
         </div>
         <h2 className="sec-title">איך זה עובד?</h2>
         <p className="sec-sub">4 שלבים פשוטים — מתמלול ועד כתוביות מוכנות</p>
@@ -155,7 +155,7 @@ export default function Home() {
           zIndex: 1,
           opacity: 0.7,
         }}>
-          <ScrollAnimation framesDir="/frames4" totalFrames={96} scrollStart={0.28} scrollEnd={0.40} />
+          <ScrollAnimation framesDir="/frames4" totalFrames={96} scrollStart={0.33} scrollEnd={0.45} />
         </div>
         <h2 className="sec-title">חבילות דקות</h2>
         <p className="sec-sub">קנה דקות. השתמש בקצב שלך. נגמר? קנה עוד.</p>
@@ -215,7 +215,7 @@ export default function Home() {
 
           <h2 className="sec-title">כתוביות אוטומטיות בעברית — למה SubAI?</h2>
           <p style={{ fontSize: 15, lineHeight: 1.9, color: "#555", textAlign: "center", marginBottom: 48 }}>
-            SubAI הוא תוסף כתוביות אוטומטי ל-Adobe Premiere Pro שמאפשר תמלול מדויק בעברית, .
+            SubAI הוא תוסף כתוביות אוטומטי ל-Adobe Premiere Pro שמאפשר תמלול מדויק בעברית, אנגלית וערבית.
             במקום לשבת שעות על כתיבת כתוביות ידנית — פשוט סמן את הקטע בטיימליין, לחץ כפתור אחד, וקבל כתוביות מוכנות תוך שניות.
             SubAI משתמש בטכנולוגיית Whisper AI של OpenAI בשילוב Claude AI של Anthropic כדי להבטיח דיוק מקסימלי בעברית.
           </p>
@@ -266,7 +266,7 @@ export default function Home() {
           <div className="glass-card" style={{ borderRadius: 20, padding: "32px 28px", marginBottom: 32 }}>
             <h3 style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e", marginBottom: 20, textAlign: "center" }}>שאלות נפוצות</h3>
             {[
-              ["האם SubAI עובד רק עם עברית?", "כן. SubAI תומך בתמלול בעברית. המודל מומחה בשפה העברית."],
+              ["האם SubAI עובד רק עם עברית?", "כן. SubAI תומך בתמלול בעברית. המודל מומחה לשפה העברית."],
               ["האם צריך חיבור לאינטרנט?", "כן. התמלול מתבצע בענן על שרתי GPU חזקים — זה מה שמאפשר תמלול מהיר ומדויק בלי לעמיס על המחשב שלך."],
               ["כמה זמן לוקח לתמלל?", "תמלול של סרטון בן 3 דקות לוקח בערך 15-30 שניות. סרטון של 10 דקות — כדקה."],
               ["האם אפשר לערוך את הכתוביות אחרי התמלול?", "בוודאי. הכתוביות נכנסות כ-Caption Track רגיל בפרמייר — אפשר לערוך, לזוז ולעצב כמו כל טקסט."],
