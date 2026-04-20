@@ -201,11 +201,85 @@ export default function Home() {
       </section>
 
       {/* ── CTA ── */}
-      <section className="section" style={{paddingBottom:100}}>
+      <section className="section" style={{paddingBottom:60}}>
         <div className="cta-card glass-card">
           <h2>מוכן להתחיל?</h2>
           <p>10 דקות תמלול בחינם. בלי כרטיס אשראי. בלי התחייבות.</p>
           <Link href="/auth" className="btn-primary" style={{fontSize:18}}>התחל עכשיו בחינם →</Link>
+        </div>
+      </section>
+
+      {/* ── SEO Content ── */}
+      <section className="section" style={{ paddingBottom: 60 }}>
+        <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 20px" }}>
+
+          <h2 className="sec-title">כתוביות אוטומטיות בעברית — למה SubAI?</h2>
+          <p style={{ fontSize: 15, lineHeight: 1.9, color: "#555", textAlign: "center", marginBottom: 48 }}>
+            SubAI הוא תוסף כתוביות אוטומטי ל-Adobe Premiere Pro שמאפשר תמלול מדויק בעברית, אנגלית וערבית.
+            במקום לשבת שעות על כתיבת כתוביות ידנית — פשוט סמן את הקטע בטיימליין, לחץ כפתור אחד, וקבל כתוביות מוכנות תוך שניות.
+            SubAI משתמש בטכנולוגיית Whisper AI של OpenAI בשילוב Claude AI של Anthropic כדי להבטיח דיוק מקסימלי בעברית.
+          </p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 32, marginBottom: 48 }}>
+
+            <div className="glass-card" style={{ borderRadius: 20, padding: "28px 24px" }}>
+              <h3 style={{ fontSize: 17, fontWeight: 700, color: "#1a1a2e", marginBottom: 12 }}>תמלול וידאו בעברית — איך זה עובד?</h3>
+              <p style={{ fontSize: 14, lineHeight: 1.85, color: "#666" }}>
+                SubAI שולח את האודיו לשרתי ענן עם GPU ייעודי שמריץ את מודל Whisper large-v3 —
+                המודל הכי מדויק בעולם לתמלול אוטומטי. לאחר התמלול, שכבת AI של Claude עוברת על הטקסט
+                ומתקנת שגיאות כתיב, פיסוק ודקדוק. התוצאה: קובץ SRT מדויק שנכנס ישירות ל-Caption Track
+                בתוך Premiere Pro — בלי לצאת מהתוכנה.
+              </p>
+            </div>
+
+            <div className="glass-card" style={{ borderRadius: 20, padding: "28px 24px" }}>
+              <h3 style={{ fontSize: 17, fontWeight: 700, color: "#1a1a2e", marginBottom: 12 }}>כתוביות לטיקטוק, רילס ויוטיוב</h3>
+              <p style={{ fontSize: 14, lineHeight: 1.85, color: "#666" }}>
+                מצב TikTok של SubAI יוצר כתוביות מילה-מילה — בדיוק כמו שרואים בסרטונים הכי פופולריים.
+                כל מילה מופיעה בתזמון מדויק, מה שמגביר צפיות ומעורבות.
+                מתאים לקליפים קצרים, סרטוני Reels, YouTube Shorts, סטוריז ברשתות החברתיות,
+                וכל תוכן וידאו שדורש כתוביות דינמיות ומרשימות.
+              </p>
+            </div>
+
+            <div className="glass-card" style={{ borderRadius: 20, padding: "28px 24px" }}>
+              <h3 style={{ fontSize: 17, fontWeight: 700, color: "#1a1a2e", marginBottom: 12 }}>למי SubAI מתאים?</h3>
+              <p style={{ fontSize: 14, lineHeight: 1.85, color: "#666" }}>
+                עורכי וידאו שעובדים עם לקוחות ישראלים וצריכים כתוביות בעברית.
+                יוצרי תוכן שמעלים סרטונים ליוטיוב, טיקטוק, אינסטגרם ופייסבוק.
+                סטודיואים ובתי הפקה שצריכים תמלול מהיר ומדויק לפרויקטים.
+                פרילנסרים בתחום עריכת הוידאו שרוצים לחסוך שעות עבודה על כתוביות ידניות.
+              </p>
+            </div>
+
+            <div className="glass-card" style={{ borderRadius: 20, padding: "28px 24px" }}>
+              <h3 style={{ fontSize: 17, fontWeight: 700, color: "#1a1a2e", marginBottom: 12 }}>יתרונות על כלי תמלול אחרים</h3>
+              <p style={{ fontSize: 14, lineHeight: 1.85, color: "#666" }}>
+                בניגוד לכלים חיצוניים כמו Kapwing, Veed או Happy Scribe — SubAI עובד ישירות בתוך Premiere Pro.
+                אין צורך לייצא אודיו, להעלות לאתר, לחכות, להוריד SRT ולייבא חזרה.
+                הכל קורה בלחיצה אחת מתוך התוכנה. בנוסף, SubAI מותאם במיוחד לעברית —
+                עם תיקון AI שמבין דקדוק עברי, גרשיים, ראשי תיבות ושמות בעברית.
+              </p>
+            </div>
+          </div>
+
+          <div className="glass-card" style={{ borderRadius: 20, padding: "32px 28px", marginBottom: 32 }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e", marginBottom: 20, textAlign: "center" }}>שאלות נפוצות</h3>
+            {[
+              ["האם SubAI עובד רק עם עברית?", "לא. SubAI תומך בתמלול בעברית, אנגלית וערבית. המודל מזהה את השפה אוטומטית."],
+              ["האם צריך חיבור לאינטרנט?", "כן. התמלול מתבצע בענן על שרתי GPU חזקים — זה מה שמאפשר תמלול מהיר ומדויק בלי לעמיס על המחשב שלך."],
+              ["כמה זמן לוקח לתמלל?", "תמלול של סרטון בן 3 דקות לוקח בערך 15-30 שניות. סרטון של 10 דקות — כדקה."],
+              ["האם אפשר לערוך את הכתוביות אחרי התמלול?", "בוודאי. הכתוביות נכנסות כ-Caption Track רגיל בפרמייר — אפשר לערוך, לזוז ולעצב כמו כל טקסט."],
+              ["מה ההבדל בין SubAI לתמלול המובנה של פרמייר?", "התמלול המובנה של Premiere לא תומך בעברית. SubAI נבנה במיוחד לעברית עם מודל Whisper ותיקון AI."],
+              ["האם הכתוביות נשמרות בפרויקט?", "כן. ברגע שהכתוביות נכנסות ל-Caption Track הן חלק מהפרויקט ונשמרות איתו."],
+            ].map(([q, ans], i) => (
+              <div key={i} style={{ marginBottom: i < 5 ? 20 : 0, paddingBottom: i < 5 ? 20 : 0, borderBottom: i < 5 ? "1px solid rgba(0,0,0,0.06)" : "none" }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: "#1a1a2e", marginBottom: 6 }}>{q}</div>
+                <div style={{ fontSize: 14, lineHeight: 1.8, color: "#666" }}>{ans}</div>
+              </div>
+            ))}
+          </div>
+
         </div>
       </section>
 
