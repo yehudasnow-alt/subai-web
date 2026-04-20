@@ -36,7 +36,7 @@ export default function Home() {
           opacity: v ? 0.85 : 0,
           transition: "opacity 1.2s ease 0.4s",
         }}>
-          <ScrollAnimation framesDir="/frames" totalFrames={96} scrollStart={0} scrollEnd={0.18} />
+          <ScrollAnimation framesDir="/frames" totalFrames={96} scrollStart={0} scrollEnd={0.10} />
         </div>
 
         <div style={a(0)}><div className="hero-badge"><span style={{display:"inline-block",width:24,height:24,overflow:"hidden",verticalAlign:"middle",marginLeft:6}}><img src="/icons/sparkles.png" alt="sparkles" style={{width:40,height:40,objectFit:"contain",marginTop:-8,marginRight:-8}} /></span> Whisper AI + Claude — תמלול וטקסט מושלמים</div></div>
@@ -81,7 +81,7 @@ export default function Home() {
           zIndex: 1,
           opacity: 0.7,
         }}>
-          <ScrollAnimation framesDir="/frames2" totalFrames={96} scrollStart={0.15} scrollEnd={0.35} />
+          <ScrollAnimation framesDir="/frames2" totalFrames={96} scrollStart={0.08} scrollEnd={0.20} />
         </div>
         <h2 className="sec-title">למה SubAI?</h2>
         <p className="sec-sub">הכלי הכי מתקדם לכתוביות בעברית — מבוסס AI מהדור האחרון</p>
@@ -131,7 +131,7 @@ export default function Home() {
           zIndex: 1,
           opacity: 0.7,
         }}>
-          <ScrollAnimation framesDir="/frames3" totalFrames={105} scrollStart={0.35} scrollEnd={0.55} />
+          <ScrollAnimation framesDir="/frames3" totalFrames={105} scrollStart={0.18} scrollEnd={0.30} />
         </div>
         <h2 className="sec-title">איך זה עובד?</h2>
         <p className="sec-sub">4 שלבים פשוטים — מתמלול ועד כתוביות מוכנות</p>
@@ -155,7 +155,7 @@ export default function Home() {
           zIndex: 1,
           opacity: 0.7,
         }}>
-          <ScrollAnimation framesDir="/frames4" totalFrames={96} scrollStart={0.55} scrollEnd={0.75} />
+          <ScrollAnimation framesDir="/frames4" totalFrames={96} scrollStart={0.28} scrollEnd={0.40} />
         </div>
         <h2 className="sec-title">חבילות דקות</h2>
         <p className="sec-sub">קנה דקות. השתמש בקצב שלך. נגמר? קנה עוד.</p>
@@ -215,7 +215,7 @@ export default function Home() {
 
           <h2 className="sec-title">כתוביות אוטומטיות בעברית — למה SubAI?</h2>
           <p style={{ fontSize: 15, lineHeight: 1.9, color: "#555", textAlign: "center", marginBottom: 48 }}>
-            SubAI הוא תוסף כתוביות אוטומטי ל-Adobe Premiere Pro שמאפשר תמלול מדויק בעברית, אנגלית וערבית.
+            SubAI הוא תוסף כתוביות אוטומטי ל-Adobe Premiere Pro שמאפשר תמלול מדויק בעברית, .
             במקום לשבת שעות על כתיבת כתוביות ידנית — פשוט סמן את הקטע בטיימליין, לחץ כפתור אחד, וקבל כתוביות מוכנות תוך שניות.
             SubAI משתמש בטכנולוגיית Whisper AI של OpenAI בשילוב Claude AI של Anthropic כדי להבטיח דיוק מקסימלי בעברית.
           </p>
@@ -266,7 +266,7 @@ export default function Home() {
           <div className="glass-card" style={{ borderRadius: 20, padding: "32px 28px", marginBottom: 32 }}>
             <h3 style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e", marginBottom: 20, textAlign: "center" }}>שאלות נפוצות</h3>
             {[
-              ["האם SubAI עובד רק עם עברית?", "לא. SubAI תומך בתמלול בעברית, אנגלית וערבית. המודל מזהה את השפה אוטומטית."],
+              ["האם SubAI עובד רק עם עברית?", "כן. SubAI תומך בתמלול בעברית. המודל מומחה בשפה העברית."],
               ["האם צריך חיבור לאינטרנט?", "כן. התמלול מתבצע בענן על שרתי GPU חזקים — זה מה שמאפשר תמלול מהיר ומדויק בלי לעמיס על המחשב שלך."],
               ["כמה זמן לוקח לתמלל?", "תמלול של סרטון בן 3 דקות לוקח בערך 15-30 שניות. סרטון של 10 דקות — כדקה."],
               ["האם אפשר לערוך את הכתוביות אחרי התמלול?", "בוודאי. הכתוביות נכנסות כ-Caption Track רגיל בפרמייר — אפשר לערוך, לזוז ולעצב כמו כל טקסט."],
