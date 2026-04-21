@@ -1,11 +1,10 @@
 /**
- * SubAI — PayMe Webhook (IPN) + EasyCount Invoice
+ * SubAI — PayMe Webhook (IPN) + EasyCount Invoice + Refund
  * POST /api/webhooks/payme
  * 
- * PayMe sends IPN (Instant Payment Notification) after successful payment.
- * This endpoint:
- * 1. Updates the user's minutes in Supabase
- * 2. Creates an invoice via EasyCount API and sends it to the buyer's email
+ * Handles:
+ * 1. Successful payment → update minutes + חשבונית מס קבלה (type 320)
+ * 2. Refund → deduct minutes + חשבונית זיכוי (type 330)
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -16,7 +15,7 @@ const supabase = createClient(
 );
 
 const PAYME_API_KEY = process.env.PAYME_API_KEY!;
-const EZCOUNT_API_KEY = process.env.EZCOUNT_API_KEY!; // Add to Vercel env vars
+const EZCOUNT_API_KEY = process.env.EZCOUNT_API_KEY!;
 
 // Plan config
 const PLANS: Record<string, { minutes: number; priceILS: number; name: string }> = {
@@ -25,77 +24,105 @@ const PLANS: Record<string, { minutes: number; priceILS: number; name: string }>
 };
 
 // ══════════════════════════════════════════════════════════════
-// EasyCount Invoice
+// EasyCount — Create Invoice or Credit Note
 // ══════════════════════════════════════════════════════════════
 
-async function createEasyCountInvoice(params: {
+async function createEasyCountDoc(params: {
+  type: 320 | 330;            // 320 = חשבונית מס קבלה, 330 = חשבונית זיכוי
   buyerEmail: string;
   buyerName: string;
   plan: string;
-  priceAgora: number; // price in agorot (e.g. 5900 for ₪59)
+  priceILS: number;
   transactionId: string;
+  originalInvoiceNumber?: string;  // Required for credit notes
 }) {
   if (!EZCOUNT_API_KEY) {
-    console.warn("[EZCOUNT] No API key configured, skipping invoice");
+    console.warn("[EZCOUNT] No API key configured, skipping");
     return null;
   }
 
   const planInfo = PLANS[params.plan] || PLANS.pro;
-  const priceILS = params.priceAgora > 0 ? params.priceAgora / 100 : planInfo.priceILS;
+  const price = params.priceILS > 0 ? params.priceILS : planInfo.priceILS;
+  const isRefund = params.type === 330;
 
-  const invoiceData = {
+  const docData: any = {
     api_key: EZCOUNT_API_KEY,
-    type: 320,                          // חשבונית מס קבלה
+    type: params.type,
     customer_name: params.buyerName || params.buyerEmail,
     customer_email: params.buyerEmail,
     item: [
       {
-        details: planInfo.name,
+        details: isRefund
+          ? "זיכוי: " + planInfo.name
+          : planInfo.name,
         amount: "1",
-        price: String(priceILS),
-        // If you're osek patur (exempt), uncomment the next line:
-        // vat_type: "INC",
+        price: String(price),
       }
     ],
     payment: [
       {
         payment_type: 3,                // 3 = credit card
-        payment: String(priceILS),
+        payment: String(price),
         comment: "PayMe #" + params.transactionId,
       }
     ],
-    price_total: String(priceILS),
-    comment: "תודה שרכשת SubAI! 🎙️",
-    // Send invoice to buyer's email automatically:
+    price_total: String(price),
+    comment: isRefund
+      ? "זיכוי עבור רכישת SubAI"
+      : "תודה שרכשת SubAI!",
     email_to: params.buyerEmail,
-    // Transaction ID for dedup:
-    transaction_id: params.transactionId,
+    transaction_id: params.transactionId + (isRefund ? "_refund" : ""),
   };
+
+  // Link credit note to original invoice
+  if (isRefund && params.originalInvoiceNumber) {
+    docData.linked_doc_number = params.originalInvoiceNumber;
+  }
 
   try {
     const res = await fetch("https://www.ezcount.co.il/api/createDoc", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(invoiceData),
+      body: JSON.stringify(docData),
     });
 
     const result = await res.json();
 
     if (result.success || result.doc_number) {
-      console.log(`[EZCOUNT] ✅ Invoice #${result.doc_number} sent to ${params.buyerEmail}`);
+      const docType = isRefund ? "Credit note" : "Invoice";
+      console.log(`[EZCOUNT] ${docType} #${result.doc_number} sent to ${params.buyerEmail}`);
       return {
         success: true,
         doc_number: result.doc_number,
         doc_url: result.doc_url || result.pdf_link || null,
       };
     } else {
-      console.error("[EZCOUNT] ❌ Failed:", JSON.stringify(result));
+      console.error("[EZCOUNT] Failed:", JSON.stringify(result));
       return { success: false, error: result.errMsg || result.error || "Unknown error" };
     }
   } catch (e: any) {
-    console.error("[EZCOUNT] ❌ Network error:", e.message);
+    console.error("[EZCOUNT] Network error:", e.message);
     return { success: false, error: e.message };
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// Detect if PayMe notification is a refund
+// ══════════════════════════════════════════════════════════════
+
+function isRefundNotification(body: any): boolean {
+  const status = (body.sale_status || body.status || "").toLowerCase();
+  const type = (body.type || body.sale_type || "").toLowerCase();
+  const debit = parseFloat(body.debit || body.sale_debit || "0");
+
+  return (
+    status === "refund" ||
+    status === "refunded" ||
+    type === "refund" ||
+    body.is_refund === true ||
+    body.is_refund === "true" ||
+    debit < 0
+  );
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -104,21 +131,18 @@ async function createEasyCountInvoice(params: {
 
 export async function POST(req: NextRequest) {
   try {
-    // PayMe sends IPN as form-urlencoded or JSON
     let body: any;
     const contentType = req.headers.get("content-type") || "";
     
     if (contentType.includes("application/json")) {
       body = await req.json();
     } else {
-      // x-www-form-urlencoded
       const text = await req.text();
       body = Object.fromEntries(new URLSearchParams(text));
     }
 
     console.log("[PAYME IPN] Received:", JSON.stringify(body));
 
-    // Validate the notification
     const saleStatus = body.sale_status || body.status;
     const salePaymeId = body.seller_payme_id || body.payme_id;
     const salePrice = body.sale_price || body.price;
@@ -126,14 +150,95 @@ export async function POST(req: NextRequest) {
     const buyerEmail = body.buyer_email || body.payer_email || "";
     const buyerName = body.buyer_name || body.payer_name || "";
     const saleDescription = body.sale_description || body.description || "";
+    const originalSaleNumber = body.original_sale_payme_id || body.sale_number || "";
 
-    // Verify this is from our account
+    // Verify seller
     if (salePaymeId && salePaymeId !== PAYME_API_KEY) {
       console.warn("[PAYME IPN] Wrong seller ID, ignoring");
       return NextResponse.json({ ok: false, error: "Wrong seller" }, { status: 403 });
     }
 
-    // Only process successful payments
+    // ── REFUND FLOW ──────────────────────────────────────────
+    if (isRefundNotification(body)) {
+      console.log(`[PAYME IPN] Refund detected: email=${buyerEmail}, tx=${transactionId}`);
+
+      if (!buyerEmail) {
+        await logPayment(transactionId, "refund", 0, salePrice, "", "refund_no_email");
+        return NextResponse.json({ ok: true, message: "Refund noted, no email" });
+      }
+
+      // Find user
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("id, email, plan, minutes_used, minutes_limit")
+        .eq("email", buyerEmail)
+        .single();
+
+      // Parse plan from description
+      let plan = "pro";
+      let minutes = 120;
+      try {
+        const desc = JSON.parse(saleDescription);
+        plan = desc.plan || "pro";
+        minutes = desc.minutes || PLANS[plan]?.minutes || 120;
+      } catch {
+        const priceNum = parseInt(salePrice) || 0;
+        if (priceNum >= 15000) { plan = "studio"; minutes = 500; }
+      }
+
+      // Deduct minutes back
+      if (profile) {
+        const newLimit = Math.max(0, (profile.minutes_limit || 0) - minutes);
+        const newPlan = newLimit <= 10 ? "free" : profile.plan;
+        await supabase
+          .from("profiles")
+          .update({ minutes_limit: newLimit, plan: newPlan })
+          .eq("id", profile.id);
+
+        console.log(`[PAYME IPN] Deducted ${minutes} minutes from ${buyerEmail}, new limit: ${newLimit}`);
+      }
+
+      // Find original invoice number for the credit note link
+      let originalInvoiceNumber: string | undefined;
+      if (originalSaleNumber) {
+        const { data: origPayment } = await supabase
+          .from("payments")
+          .select("invoice_number")
+          .eq("transaction_id", originalSaleNumber)
+          .single();
+        if (origPayment?.invoice_number) {
+          originalInvoiceNumber = origPayment.invoice_number;
+        }
+      }
+
+      // Create credit note (חשבונית זיכוי)
+      const priceNum = parseInt(salePrice) || 0;
+      const priceILS = priceNum > 1000 ? priceNum / 100 : priceNum;
+
+      let creditResult = null;
+      try {
+        creditResult = await createEasyCountDoc({
+          type: 330,
+          buyerEmail,
+          buyerName,
+          plan,
+          priceILS,
+          transactionId: transactionId || `refund_${Date.now()}`,
+          originalInvoiceNumber,
+        });
+      } catch (e: any) {
+        console.error("[PAYME IPN] Credit note failed:", e.message);
+      }
+
+      await logPayment(
+        transactionId, plan, -minutes, salePrice, buyerEmail, "refund",
+        profile?.id, creditResult?.success ? creditResult.doc_number : null
+      );
+
+      return NextResponse.json({ ok: true, message: "Refund processed", credit_note: creditResult });
+    }
+
+    // ── PURCHASE FLOW ────────────────────────────────────────
     const isSuccess = 
       saleStatus === "success" || 
       saleStatus === "completed" || 
@@ -147,36 +252,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, message: "Noted, not successful" });
     }
 
-    // Parse plan info from sale_description
+    // Parse plan
     let plan = "pro";
     let minutes = 120;
-    
     try {
       const desc = JSON.parse(saleDescription);
       plan = desc.plan || "pro";
       minutes = desc.minutes || PLANS[plan]?.minutes || 120;
     } catch {
-      // Fallback: determine plan from price
       const priceNum = parseInt(salePrice) || 0;
-      if (priceNum >= 15000) {
-        plan = "studio";
-        minutes = 500;
-      } else {
-        plan = "pro";
-        minutes = 120;
-      }
+      if (priceNum >= 15000) { plan = "studio"; minutes = 500; }
     }
 
-    console.log(`[PAYME IPN] Successful payment: plan=${plan}, minutes=${minutes}, email=${buyerEmail}, tx=${transactionId}`);
+    console.log(`[PAYME IPN] Payment: plan=${plan}, minutes=${minutes}, email=${buyerEmail}, tx=${transactionId}`);
 
-    // Find user by email
     if (!buyerEmail) {
-      console.error("[PAYME IPN] No buyer email in notification");
       await logPayment(transactionId, plan, minutes, salePrice, buyerEmail, "no_email");
-      return NextResponse.json({ ok: true, message: "No email, logged for manual processing" });
+      return NextResponse.json({ ok: true, message: "No email, logged" });
     }
 
-    // Find the user's profile
+    // Find profile
     const { data: profile, error: profileErr } = await supabase
       .from("profiles")
       .select("id, email, plan, minutes_used, minutes_limit")
@@ -184,12 +279,12 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (profileErr || !profile) {
-      console.error(`[PAYME IPN] Profile not found for email: ${buyerEmail}`);
+      console.error(`[PAYME IPN] Profile not found: ${buyerEmail}`);
       await logPayment(transactionId, plan, minutes, salePrice, buyerEmail, "profile_not_found");
       return NextResponse.json({ ok: true, message: "Profile not found, logged" });
     }
 
-    // Check for duplicate transaction
+    // Dedup
     const { data: existing } = await supabase
       .from("payments")
       .select("id")
@@ -197,51 +292,47 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (existing) {
-      console.log(`[PAYME IPN] Duplicate transaction ${transactionId}, ignoring`);
+      console.log(`[PAYME IPN] Duplicate ${transactionId}, ignoring`);
       return NextResponse.json({ ok: true, message: "Already processed" });
     }
 
-    // Update user's plan and minutes
+    // Update minutes
     const newLimit = (profile.minutes_limit || 0) + minutes;
     const { error: updateErr } = await supabase
       .from("profiles")
-      .update({
-        plan: plan,
-        minutes_limit: newLimit,
-        subscription_status: "active",
-      })
+      .update({ plan, minutes_limit: newLimit, subscription_status: "active" })
       .eq("id", profile.id);
 
     if (updateErr) {
-      console.error("[PAYME IPN] Failed to update profile:", updateErr);
+      console.error("[PAYME IPN] Update failed:", updateErr);
       await logPayment(transactionId, plan, minutes, salePrice, buyerEmail, "update_failed");
       return NextResponse.json({ ok: false, error: "Update failed" }, { status: 500 });
     }
 
-    // ══════════════════════════════════════════════════════════
-    // NEW: Create & send invoice via EasyCount
-    // ══════════════════════════════════════════════════════════
+    // Create invoice (חשבונית מס קבלה)
+    const priceNum = parseInt(salePrice) || 0;
+    const priceILS = priceNum > 1000 ? priceNum / 100 : priceNum;
+
     let invoiceResult = null;
     try {
-      invoiceResult = await createEasyCountInvoice({
+      invoiceResult = await createEasyCountDoc({
+        type: 320,
         buyerEmail,
         buyerName,
         plan,
-        priceAgora: parseInt(salePrice) || 0,
+        priceILS,
         transactionId: transactionId || `payme_${Date.now()}`,
       });
     } catch (e: any) {
-      console.error("[PAYME IPN] Invoice creation failed (non-blocking):", e.message);
-      // Don't fail the webhook if invoice fails — payment is already processed
+      console.error("[PAYME IPN] Invoice failed (non-blocking):", e.message);
     }
 
-    // Log the payment (with invoice info)
     await logPayment(
-      transactionId, plan, minutes, salePrice, buyerEmail, "success", profile.id,
-      invoiceResult?.success ? invoiceResult.doc_number : null
+      transactionId, plan, minutes, salePrice, buyerEmail, "success",
+      profile.id, invoiceResult?.success ? invoiceResult.doc_number : null
     );
 
-    console.log(`[PAYME IPN] ✅ Updated ${buyerEmail}: plan=${plan}, minutes_limit=${newLimit}, invoice=${invoiceResult?.doc_number || 'none'}`);
+    console.log(`[PAYME IPN] Done: ${buyerEmail}, plan=${plan}, limit=${newLimit}, invoice=${invoiceResult?.doc_number || 'none'}`);
 
     return NextResponse.json({ ok: true, message: "Payment processed", invoice: invoiceResult });
   } catch (e: any) {
@@ -250,7 +341,10 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Log payment for audit trail
+// ══════════════════════════════════════════════════════════════
+// Audit Log
+// ══════════════════════════════════════════════════════════════
+
 async function logPayment(
   transactionId: string,
   plan: string,
@@ -276,11 +370,10 @@ async function logPayment(
       created_at: new Date().toISOString(),
     });
   } catch (e: any) {
-    console.error("[PAYME IPN] Failed to log payment:", e.message);
+    console.error("[PAYME IPN] Log failed:", e.message);
   }
 }
 
-// Also handle GET for PayMe return URL verification
-export async function GET(req: NextRequest) {
+export async function GET() {
   return NextResponse.json({ ok: true, message: "PayMe webhook endpoint" });
 }
