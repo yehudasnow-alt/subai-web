@@ -59,8 +59,8 @@ export default function Dashboard() {
 
   const planNames: Record<string, React.ReactNode> = {
     free: "חינמי",
-    pro: <span>פרו <img src="/icons/star.png" alt="star" style={{ width: 22, height: 22, objectFit: "contain", verticalAlign: "middle", marginRight: 2 }} /></span>,
-    studio: <span>סטודיו <img src="/icons/diamond.png" alt="diamond" style={{ width: 22, height: 22, objectFit: "contain", verticalAlign: "middle", marginRight: 2 }} /></span>,
+    pro: <span>פרו <span style={{ display: "inline-block", width: 32, height: 32, overflow: "hidden", verticalAlign: "middle", marginRight: 2 }}><img src="/icons/star.png" alt="star" style={{ width: 52, height: 52, objectFit: "contain", marginTop: -10, marginRight: -10 }} /></span></span>,
+    studio: <span>סטודיו <span style={{ display: "inline-block", width: 32, height: 32, overflow: "hidden", verticalAlign: "middle", marginRight: 2 }}><img src="/icons/diamond.png" alt="diamond" style={{ width: 52, height: 52, objectFit: "contain", marginTop: -10, marginRight: -10 }} /></span></span>,
   };
 
   const actionIconStyle: React.CSSProperties = {
