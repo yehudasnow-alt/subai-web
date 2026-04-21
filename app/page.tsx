@@ -215,7 +215,7 @@ export default function Home() {
 
           <h2 className="sec-title">כתוביות אוטומטיות בעברית — למה SubAI?</h2>
           <p style={{ fontSize: 15, lineHeight: 1.9, color: "#555", textAlign: "center", marginBottom: 48 }}>
-            SubAI הוא תוסף כתוביות אוטומטי ל-Adobe Premiere Pro שמאפשר תמלול מדויק בעברית, אנגלית וערבית.
+            SubAI הוא תוסף כתוביות אוטומטי ל-Adobe Premiere Pro שמאפשר תמלול מדויק בעברית,.
             במקום לשבת שעות על כתיבת כתוביות ידנית — פשוט סמן את הקטע בטיימליין, לחץ כפתור אחד, וקבל כתוביות מוכנות תוך שניות.
             SubAI משתמש בטכנולוגיית Whisper AI של OpenAI בשילוב Claude AI של Anthropic כדי להבטיח דיוק מקסימלי בעברית.
           </p>
