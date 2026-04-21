@@ -31,10 +31,12 @@ async function createEasyCountDoc(params: {
   type: 320 | 330;            // 320 = חשבונית מס קבלה, 330 = חשבונית זיכוי
   buyerEmail: string;
   buyerName: string;
+  buyerCompany?: string;      // שם עסק (אם הלקוח מילא)
+  buyerTaxId?: string;        // ח.פ / עוסק מורשה (אם הלקוח מילא)
   plan: string;
   priceILS: number;
   transactionId: string;
-  originalInvoiceNumber?: string;  // Required for credit notes
+  originalInvoiceNumber?: string;
 }) {
   if (!EZCOUNT_API_KEY) {
     console.warn("[EZCOUNT] No API key configured, skipping");
@@ -45,11 +47,17 @@ async function createEasyCountDoc(params: {
   const price = params.priceILS > 0 ? params.priceILS : planInfo.priceILS;
   const isRefund = params.type === 330;
 
+  // Priority: company name > buyer name > email
+  // If buyer filled in business details in PayMe checkout → use those
+  const customerName = params.buyerCompany || params.buyerName || params.buyerEmail;
+
   const docData: any = {
     api_key: EZCOUNT_API_KEY,
     type: params.type,
-    customer_name: params.buyerName || params.buyerEmail,
+    customer_name: customerName,
     customer_email: params.buyerEmail,
+    // If buyer provided tax ID (ח.פ), include it on the invoice
+    ...(params.buyerTaxId ? { customer_id: params.buyerTaxId } : {}),
     item: [
       {
         details: isRefund
@@ -149,6 +157,8 @@ export async function POST(req: NextRequest) {
     const transactionId = body.sale_payme_id || body.transaction_id || body.payme_transaction_id;
     const buyerEmail = body.buyer_email || body.payer_email || "";
     const buyerName = body.buyer_name || body.payer_name || "";
+    const buyerCompany = body.buyer_company || body.company_name || body.business_name || "";
+    const buyerTaxId = body.buyer_social_id || body.tax_id || body.hp || body.vat_id || "";
     const saleDescription = body.sale_description || body.description || "";
     const originalSaleNumber = body.original_sale_payme_id || body.sale_number || "";
 
@@ -221,6 +231,8 @@ export async function POST(req: NextRequest) {
           type: 330,
           buyerEmail,
           buyerName,
+          buyerCompany,
+          buyerTaxId,
           plan,
           priceILS,
           transactionId: transactionId || `refund_${Date.now()}`,
@@ -319,6 +331,8 @@ export async function POST(req: NextRequest) {
         type: 320,
         buyerEmail,
         buyerName,
+        buyerCompany,
+        buyerTaxId,
         plan,
         priceILS,
         transactionId: transactionId || `payme_${Date.now()}`,
