@@ -1,11 +1,11 @@
 /**
- * SubAI — PayMe Webhook (IPN)
+ * SubAI — PayMe Webhook (IPN) + EasyCount Invoice
  * POST /api/webhooks/payme
  * 
  * PayMe sends IPN (Instant Payment Notification) after successful payment.
- * This endpoint receives the notification and updates the user's minutes.
- * 
- * PayMe IPN is sent as POST with application/x-www-form-urlencoded
+ * This endpoint:
+ * 1. Updates the user's minutes in Supabase
+ * 2. Creates an invoice via EasyCount API and sends it to the buyer's email
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -16,12 +16,91 @@ const supabase = createClient(
 );
 
 const PAYME_API_KEY = process.env.PAYME_API_KEY!;
+const EZCOUNT_API_KEY = process.env.EZCOUNT_API_KEY!; // Add to Vercel env vars
 
-// Plan minutes mapping
-const PLAN_MINUTES: Record<string, number> = {
-  pro: 120,
-  studio: 500,
+// Plan config
+const PLANS: Record<string, { minutes: number; priceILS: number; name: string }> = {
+  pro:    { minutes: 120, priceILS: 59,  name: "SubAI פרו — 120 דקות תמלול" },
+  studio: { minutes: 500, priceILS: 180, name: "SubAI סטודיו — 500 דקות תמלול" },
 };
+
+// ══════════════════════════════════════════════════════════════
+// EasyCount Invoice
+// ══════════════════════════════════════════════════════════════
+
+async function createEasyCountInvoice(params: {
+  buyerEmail: string;
+  buyerName: string;
+  plan: string;
+  priceAgora: number; // price in agorot (e.g. 5900 for ₪59)
+  transactionId: string;
+}) {
+  if (!EZCOUNT_API_KEY) {
+    console.warn("[EZCOUNT] No API key configured, skipping invoice");
+    return null;
+  }
+
+  const planInfo = PLANS[params.plan] || PLANS.pro;
+  const priceILS = params.priceAgora > 0 ? params.priceAgora / 100 : planInfo.priceILS;
+
+  const invoiceData = {
+    api_key: EZCOUNT_API_KEY,
+    type: 320,                          // חשבונית מס קבלה
+    customer_name: params.buyerName || params.buyerEmail,
+    customer_email: params.buyerEmail,
+    item: [
+      {
+        details: planInfo.name,
+        amount: "1",
+        price: String(priceILS),
+        // If you're osek patur (exempt), uncomment the next line:
+        // vat_type: "INC",
+      }
+    ],
+    payment: [
+      {
+        payment_type: 3,                // 3 = credit card
+        payment: String(priceILS),
+        comment: "PayMe #" + params.transactionId,
+      }
+    ],
+    price_total: String(priceILS),
+    comment: "תודה שרכשת SubAI! 🎙️",
+    // Send invoice to buyer's email automatically:
+    email_to: params.buyerEmail,
+    // Transaction ID for dedup:
+    transaction_id: params.transactionId,
+  };
+
+  try {
+    const res = await fetch("https://www.ezcount.co.il/api/createDoc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(invoiceData),
+    });
+
+    const result = await res.json();
+
+    if (result.success || result.doc_number) {
+      console.log(`[EZCOUNT] ✅ Invoice #${result.doc_number} sent to ${params.buyerEmail}`);
+      return {
+        success: true,
+        doc_number: result.doc_number,
+        doc_url: result.doc_url || result.pdf_link || null,
+      };
+    } else {
+      console.error("[EZCOUNT] ❌ Failed:", JSON.stringify(result));
+      return { success: false, error: result.errMsg || result.error || "Unknown error" };
+    }
+  } catch (e: any) {
+    console.error("[EZCOUNT] ❌ Network error:", e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// PayMe Webhook Handler
+// ══════════════════════════════════════════════════════════════
 
 export async function POST(req: NextRequest) {
   try {
@@ -45,6 +124,7 @@ export async function POST(req: NextRequest) {
     const salePrice = body.sale_price || body.price;
     const transactionId = body.sale_payme_id || body.transaction_id || body.payme_transaction_id;
     const buyerEmail = body.buyer_email || body.payer_email || "";
+    const buyerName = body.buyer_name || body.payer_name || "";
     const saleDescription = body.sale_description || body.description || "";
 
     // Verify this is from our account
@@ -54,7 +134,6 @@ export async function POST(req: NextRequest) {
     }
 
     // Only process successful payments
-    // PayMe status codes: "success" or status_code 0 = successful
     const isSuccess = 
       saleStatus === "success" || 
       saleStatus === "completed" || 
@@ -75,7 +154,7 @@ export async function POST(req: NextRequest) {
     try {
       const desc = JSON.parse(saleDescription);
       plan = desc.plan || "pro";
-      minutes = desc.minutes || PLAN_MINUTES[plan] || 120;
+      minutes = desc.minutes || PLANS[plan]?.minutes || 120;
     } catch {
       // Fallback: determine plan from price
       const priceNum = parseInt(salePrice) || 0;
@@ -93,7 +172,6 @@ export async function POST(req: NextRequest) {
     // Find user by email
     if (!buyerEmail) {
       console.error("[PAYME IPN] No buyer email in notification");
-      // Log the payment anyway for manual processing
       await logPayment(transactionId, plan, minutes, salePrice, buyerEmail, "no_email");
       return NextResponse.json({ ok: true, message: "No email, logged for manual processing" });
     }
@@ -140,12 +218,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "Update failed" }, { status: 500 });
     }
 
-    // Log the payment
-    await logPayment(transactionId, plan, minutes, salePrice, buyerEmail, "success", profile.id);
+    // ══════════════════════════════════════════════════════════
+    // NEW: Create & send invoice via EasyCount
+    // ══════════════════════════════════════════════════════════
+    let invoiceResult = null;
+    try {
+      invoiceResult = await createEasyCountInvoice({
+        buyerEmail,
+        buyerName,
+        plan,
+        priceAgora: parseInt(salePrice) || 0,
+        transactionId: transactionId || `payme_${Date.now()}`,
+      });
+    } catch (e: any) {
+      console.error("[PAYME IPN] Invoice creation failed (non-blocking):", e.message);
+      // Don't fail the webhook if invoice fails — payment is already processed
+    }
 
-    console.log(`[PAYME IPN] ✅ Updated ${buyerEmail}: plan=${plan}, minutes_limit=${newLimit}`);
+    // Log the payment (with invoice info)
+    await logPayment(
+      transactionId, plan, minutes, salePrice, buyerEmail, "success", profile.id,
+      invoiceResult?.success ? invoiceResult.doc_number : null
+    );
 
-    return NextResponse.json({ ok: true, message: "Payment processed" });
+    console.log(`[PAYME IPN] ✅ Updated ${buyerEmail}: plan=${plan}, minutes_limit=${newLimit}, invoice=${invoiceResult?.doc_number || 'none'}`);
+
+    return NextResponse.json({ ok: true, message: "Payment processed", invoice: invoiceResult });
   } catch (e: any) {
     console.error("[PAYME IPN] Error:", e.message);
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
@@ -160,7 +258,8 @@ async function logPayment(
   amount: string,
   email: string,
   status: string,
-  userId?: string
+  userId?: string,
+  invoiceNumber?: string | null
 ) {
   try {
     await supabase.from("payments").insert({
@@ -173,6 +272,7 @@ async function logPayment(
       email,
       user_id: userId || null,
       status,
+      invoice_number: invoiceNumber || null,
       created_at: new Date().toISOString(),
     });
   } catch (e: any) {
