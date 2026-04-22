@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "SubAI — כתוביות אוטומטיות בעברית לפרמייר פרו",
-  description: "תוסף כתוביות אוטומטי ל-Adobe Premiere Pro. תמלול בעברית, אנגלית וערבית עם AI. ייצוא SRT ישירות לטיימליין. הכי מדויק בשוק הישראלי.",
+  description: "תוסף כתוביות אוטומטי ל-Adobe Premiere Pro. תמלול בעברית,  עם AI. ייצוא SRT ישירות לטיימליין. הכי מדויק בשוק הישראלי.",
   keywords: "כתוביות פרמייר פרו, תמלול אוטומטי עברית, כתוביות אוטומטיות, תוסף כתוביות, SRT עברית, subtitle premiere pro, תמלול וידאו, כתוביות לסרטונים, תמלול AI, כתוביות טיקטוק, כתוביות רילס, עריכת וידאו",
   openGraph: {
     title: "SubAI — כתוביות AI לפרמייר פרו",
