@@ -286,7 +286,7 @@ export default function Home() {
       {/* ── Footer ── */}
       <footer className="footer">
         <div className="footer-inner">
-          <div className="nav-logo" style={{gap:8}}><div className="logo-icon" style={{width:28,height:28,fontSize:14,borderRadius:8}}>S</div><span className="logo-text" style={{fontSize:16}}>Sub<span>AI</span></span></div>
+          <Link href="/" className="nav-logo" style={{gap:8, textDecoration:"none"}}><img src="/icons/subai-logo.webp" alt="SubAI" style={{height:32, objectFit:"contain"}} /></Link>
           <div className="footer-links"><a href="#features">יתרונות</a><a href="#pricing">מחירים</a><Link href="/privacy">פרטיות</Link><Link href="/terms">תנאי שימוש</Link><Link href="/auth">התחברות</Link></div>
           <div className="footer-copy">© 2026 SubAI — כתוביות AI לפרמייר פרו</div>
         </div>
