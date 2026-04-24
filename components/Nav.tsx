@@ -16,7 +16,7 @@ export default function Nav() {
   return (
     <nav className="nav-glass">
       <Link href="/" className="nav-logo">
-        <img src="/icons/subai-logo.webp" alt="SubAI" style={{ height: 36, objectFit: "contain" }} />
+        <img src="/icons/subai-logo.webp" alt="SubAI" style={{ height: 56, objectFit: "contain" }} />
       </Link>
       <div className="nav-links">
         <a href="/#features">יתרונות</a>
