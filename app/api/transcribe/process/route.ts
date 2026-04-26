@@ -899,12 +899,29 @@ function countTail(c: Word[]): number {
 }
 
 // ══════════════════════════════════════════════════════════════
-// SRT BUILDER (RTL) — unchanged
+// SRT BUILDER — RTL with full RLE/PDF wrapping (v10.1)
+// ══════════════════════════════════════════════════════════════
+//
+// Each Hebrew/Arabic line is wrapped as:
+//   RLE  +  RLM  +  text  +  RLM  +  PDF
+//
+// • RLE (U+202B) — opens an RTL embedding for the whole line
+// • RLM (U+200F) — pins punctuation/digits to the correct side
+// • PDF (U+202C) — closes the embedding cleanly
+//
+// All four chars are invisible. The text itself is unchanged.
+// Result: software that respects Unicode bidi (Premiere Pro 2022.1+,
+// DaVinci Resolve, modern Subtitle Edit, etc.) renders the line
+// right-aligned with punctuation in the correct place — no manual
+// "convert to RTL" button click needed.
 // ══════════════════════════════════════════════════════════════
 
 function buildSrt(segs: Segment[], lang: string = "he"): string {
   const rtl = lang === "he" || lang === "ar";
-  const RLM = "\u200F";
+  const RLE = "\u202B";  // Right-to-Left Embedding (open)
+  const RLM = "\u200F";  // Right-to-Left Mark (punctuation anchor)
+  const PDF = "\u202C";  // Pop Directional Formatting (close)
+
   const ts = (s: number) => {
     s = Math.max(0, s);
     const h = Math.floor(s / 3600);
@@ -913,11 +930,13 @@ function buildSrt(segs: Segment[], lang: string = "he"): string {
     const ms = Math.round((s - Math.floor(s)) * 1000);
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sc).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
   };
+
   return segs
     .map((seg, i) => {
       const t = seg.text.trim();
       if (!t) return "";
-      return `${i + 1}\n${ts(seg.start)} --> ${ts(seg.end)}\n${rtl ? RLM + t : t}\n`;
+      const wrapped = rtl ? `${RLE}${RLM}${t}${RLM}${PDF}` : t;
+      return `${i + 1}\n${ts(seg.start)} --> ${ts(seg.end)}\n${wrapped}\n`;
     })
     .filter(Boolean)
     .join("\n");
