@@ -1,25 +1,26 @@
 /**
- * SubAI — Transcription Engine v10.0 (Sonnet — Hebrew Language Expert)
+ * SubAI — Transcription Engine v10.1 (Punctuation-Only AI + Smart Splitting)
  * ═══════════════════════════════════════════════════════════════
  * ASYNC PROCESSING ENDPOINT — Called internally by /api/transcribe
- * 
- * This file contains ALL the original transcription logic, unchanged.
- * The only difference: it reads job params from Supabase and saves
- * results back to Supabase, instead of doing everything in one request.
- * ═══════════════════════════════════════════════════════════════
  *
- * CHANGES FROM v9.1:
+ * CHANGES FROM v10.0:
  * ═══════════════════════════════════════════════════════════════
- * 1. Whisper: ivrit-ai/whisper-large-v3 (Hebrew fine-tuned)
- * 2. AI: Haiku → Sonnet 4 (dramatically better Hebrew)
- * 3. Prompts: Shorter, focused, with examples (not essays)
- * 4. Architecture: Single-pass (Sonnet is good enough for one pass)
- * 5. Batching: 50 segments + 5 overlap (Sonnet handles more)
- * 6. Confidence: Enhanced low-confidence word handling
- * 7. Whisper config: beam_size=5, VAD, initial_prompt
- * ═══════════════════════════════════════════════════════════════
+ * 1. AI scope DRASTICALLY reduced:
+ *    - v10.0: phonetic word correction + punctuation
+ *    - v10.1: PUNCTUATION ONLY. AI never changes any word.
+ * 2. Strict acceptance: ANY word-level change → automatic reject.
+ *    Only pure-punctuation diffs are applied.
+ * 3. Confidence hints removed (no longer needed for word correction).
+ * 4. splitWords:
+ *    - word1 (TikTok): STRICT 1-word — no binding overrides.
+ *    - word2/word3: unchanged behavior.
+ *    - word4+: looks ahead for sentence-end (.!?), pause >0.45s,
+ *      or comma when at target — produces contextual chunks.
+ * 5. splitAuto unchanged in structure but now benefits from AI
+ *    punctuation: real sentence breaks instead of arbitrary char-limit cuts.
  *
  * IRON LAW: SRT TIMESTAMPS ARE WHISPER'S ORIGINALS — NEVER MODIFIED.
+ *           AI may only add/adjust punctuation; word count must match.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -37,25 +38,24 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const PROCESS_SECRET = process.env.PROCESS_SECRET || "subai-internal-process-key";
 
 // ═══════════════════════════════════════════════════════════════
-// CONFIG — Easy to tune
+// CONFIG
 // ═══════════════════════════════════════════════════════════════
 
 const AI_CONFIG = {
-  // Model: Sonnet for Hebrew (much better morphology understanding)
-  // Switch to "claude-sonnet-4-20250514" for cost savings
   model: "claude-haiku-4-5-20251001",
   maxTokens: 8192,
-  timeoutMs: 45000,  // Sonnet needs slightly more time
+  timeoutMs: 45000,
 
-  // Batching
-  batchSize: 50,     // Sonnet handles larger context
-  batchOverlap: 5,   // More overlap = better continuity
+  batchSize: 60,     // Punctuation-only is lighter → larger batches OK
+  batchOverlap: 4,
+};
 
-  // Validation
-  maxWordDiffShort: 2,   // segments < 10 words
-  maxWordDiffLong: 3,    // segments >= 10 words
-  levThreshold: 0.4,     // max Levenshtein distance (0-1)
-  levThresholdGarbage: 0.85, // more lenient for garbage input
+// Splitting tuning
+const SPLIT_CONFIG = {
+  // word4+ smart-break thresholds
+  pauseGapSec: 0.45,        // a silence ≥ this between words → natural break
+  earlyBreakSlackBefore: 1, // for gs≥4, allow break at (gs - earlyBreakSlackBefore) on .!?
+  bindingExtraSlots: 2,     // allow up to gs + bindingExtraSlots when bound
 };
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
@@ -72,7 +72,7 @@ interface Word { start: number; end: number; word: string; probability?: number;
 interface TimedSegment { start: number; end: number; text: string; words: Word[]; }
 
 // ══════════════════════════════════════════════════════════════
-// DATABASE (unchanged from v9.1)
+// DATABASE (unchanged)
 // ══════════════════════════════════════════════════════════════
 
 async function logUsage(
@@ -102,7 +102,7 @@ async function deductMinutes(userId: string, mins: number) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// JOB STATUS HELPERS (NEW for async)
+// JOB STATUS HELPERS
 // ══════════════════════════════════════════════════════════════
 
 async function updateJobStatus(jobId: string, status: string) {
@@ -178,7 +178,7 @@ function buildTimedSegments(segments: Segment[], words: Word[]): TimedSegment[] 
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 1.5: HALLUCINATION FILTER (enhanced)
+// STEP 1.5: HALLUCINATION FILTER (unchanged)
 // ══════════════════════════════════════════════════════════════
 
 function isGarbageSegment(text: string): boolean {
@@ -206,23 +206,18 @@ function filterHallucinations(
     let skip = false;
     let reason = "";
 
-    // Stuck loop
     if (dur > 5 && uniqueWords <= 2 && textWords.length >= 3) {
       skip = true; reason = "stuck loop";
     }
-    // Single word spanning too long
     if (dur > 6 && textWords.length <= 1) {
       skip = true; reason = `single word ${dur.toFixed(1)}s`;
     }
-    // Too long for content
     if (dur > 10 && textWords.length <= 3) {
       skip = true; reason = "too long for content";
     }
-    // Exact duplicate of previous
     if (i > 0 && text === segments[i - 1].text.trim()) {
       skip = true; reason = "exact duplicate";
     }
-    // Prompt leak
     if (prompt && text.length > 5) {
       const ct = text.replace(/[.!?,;:\s]/g, "");
       const cp = prompt.replace(/[.!?,;:\s]/g, "");
@@ -230,11 +225,9 @@ function filterHallucinations(
         skip = true; reason = "prompt leak";
       }
     }
-    // Repeating pattern
     if (textWords.length >= 4 && uniqueWords <= 2) {
       skip = true; reason = "repeating pattern";
     }
-    // Repeating characters (e.g. "שששששששש...")
     if (text.length > 10) {
       const charCounts = new Map<string, number>();
       for (const ch of text.replace(/\s/g, "")) {
@@ -248,7 +241,6 @@ function filterHallucinations(
         }
       }
     }
-    // NEW: Near-duplicate (>90% similar to previous)
     if (i > 0 && !skip && text.length > 10) {
       const prevText = segments[i - 1].text.trim();
       if (levenshtein(text, prevText) < 0.15) {
@@ -278,132 +270,105 @@ function filterHallucinations(
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2A: CONFIDENCE HINTS (enhanced — now groups by severity)
+// STEP 2A: PUNCTUATION-ONLY PROMPT (NEW — replaces phonetic correction)
 // ══════════════════════════════════════════════════════════════
+//
+// PHILOSOPHY:
+// - The AI no longer corrects words.
+// - Sole job: add punctuation marks (. , ? ! :) where missing.
+// - Word count MUST be identical between input and output.
+// - Word identity (after stripping punctuation) MUST be identical.
+// - Anything else gets rejected by applyCorrections() automatically.
+//
 
-function buildConfidenceHints(timedSegs: TimedSegment[]): string {
-  const critical: string[] = [];  // < 40%
-  const low: string[] = [];       // 40-70%
+function buildPunctuationPrompt(): string {
+  return `אתה מומחה לפיסוק בעברית. קיבלת תמלול בעברית בלי פיסוק (או עם פיסוק חלקי).
 
-  for (let si = 0; si < timedSegs.length; si++) {
-    const seg = timedSegs[si];
-    const critWords: string[] = [];
-    const lowWords: string[] = [];
+## המשימה היחידה שלך
+להוסיף סימני פיסוק במקומות הנכונים. שום דבר אחר.
 
-    for (const w of seg.words) {
-      if (w.probability !== undefined) {
-        if (w.probability < 0.4) {
-          critWords.push(`"${w.word}"(${(w.probability * 100).toFixed(0)}%)`);
-        } else if (w.probability < 0.7) {
-          lowWords.push(`"${w.word}"(${(w.probability * 100).toFixed(0)}%)`);
-        }
-      }
-    }
-    if (critWords.length > 0) critical.push(`[${si}] ⚠️ ${critWords.join(", ")}`);
-    if (lowWords.length > 0) low.push(`[${si}] ${lowWords.join(", ")}`);
-  }
+## כללי ברזל — אסור לחרוג
 
-  if (critical.length === 0 && low.length === 0) return "";
+1. **אסור לשנות מילים.** אפילו לא אחת. גם אם יש שגיאת כתיב, גם אם המילה נשמעת מוזרה — תעזוב אותה.
+2. **אסור להוסיף מילים.** רק סימני פיסוק.
+3. **אסור להוריד מילים.** כל מילה במקור חייבת להיות בפלט.
+4. **אסור לשנות סדר מילים.**
+5. **רק 5 סימנים מותרים:** . , ? ! :
 
-  let hints = "\n\n🔍 WHISPER CONFIDENCE — מילים שWhisper לא בטוח לגביהן:";
-  if (critical.length > 0) {
-    hints += `\n\nקריטי (confidence < 40% — כנראה שגוי):\n${critical.join("\n")}`;
-  }
-  if (low.length > 0) {
-    hints += `\n\nנמוך (confidence < 70% — בדוק):\n${low.join("\n")}`;
-  }
-  return hints;
+## דוגמאות
+
+קלט:  [0] שלום מה שלומך
+פלט:  [0] שלום, מה שלומך?
+
+קלט:  [1] אני הולך הביתה אני שמח
+פלט:  [1] אני הולך הביתה. אני שמח.
+
+קלט:  [2] הוא אמר לי בוא נלך
+פלט:  [2] הוא אמר לי: בוא נלך.
+
+קלט:  [3] תהרה לב מה שאתה אומר
+פלט:  [3] תהרה לב, מה שאתה אומר?
+       ← שים לב: לא תיקנתי "תהרה" ל"טהרה". אסור! רק פיסוק.
+
+קלט:  [4] רציתי ללכת אבל הוא לא הסכים
+פלט:  [4] רציתי ללכת, אבל הוא לא הסכים.
+
+## איפה לשים פיסוק
+
+- **נקודה (.)** — בסוף משפט שהושלם
+- **סימן שאלה (?)** — אחרי שאלה ברורה
+- **סימן קריאה (!)** — אחרי קריאה / הדגשה (השתמש במשורה)
+- **פסיק (,)** — לפני "אבל", "אך", "או", "כי", אחרי פנייה, בין פריטים
+- **נקודתיים (:)** — לפני ציטוט / רשימה / הסבר
+
+## מבחן עצמי לפני שאתה שולח
+
+1. האם כל המילים זהות לקלט (חוץ מפיסוק שנוסף)? אם לא — תקן.
+2. האם מספר המילים זהה? אם לא — תקן.
+3. האם הוספתי רק . , ? ! : ? אם לא — תקן.
+
+## פורמט פלט
+
+[index] טקסט עם פיסוק
+
+שורה אחת לכל [index]. חובה לכלול את כל האינדקסים. אסור להוסיף הסברים, הקדמות או הערות.`;
+}
+
+function buildPunctuationPromptNonHebrew(language: string): string {
+  const langName = language === "ar" ? "Arabic" : "English";
+  return `You are a punctuation expert. You will receive ${langName} text without (or with minimal) punctuation.
+
+## Your only job
+Add proper punctuation marks. Nothing else.
+
+## Iron rules — never break
+
+1. **Do NOT change any word.** Not even one. Even if there's a typo, leave it.
+2. **Do NOT add words.** Only punctuation.
+3. **Do NOT remove words.** Every input word must appear in output.
+4. **Do NOT reorder words.**
+5. **Only these marks allowed:** . , ? ! : ;
+
+## Examples
+
+Input:  [0] hello how are you
+Output: [0] Hello, how are you?
+
+Input:  [1] i went home i was happy
+Output: [1] I went home. I was happy.
+
+Input:  [2] he said come with me
+Output: [2] He said: come with me.
+
+## Format
+
+[index] text with punctuation
+
+One line per [index]. Include all indices. No explanations.`;
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2B: THE HEBREW EXPERT PROMPT — v10 (Focused + Examples)
-// ══════════════════════════════════════════════════════════════
-//
-// PHILOSOPHY CHANGE from v9.1:
-// - v9.1: Long essay with tables → model gets "lost" in instructions
-// - v10: Short principles + CONCRETE EXAMPLES → model learns by pattern
-//
-// The key insight: Sonnet already knows Hebrew deeply.
-// We don't need to teach it Hebrew — we need to teach it
-// what Whisper gets wrong and how to fix it.
-//
-
-function buildCorrectionPrompt(): string {
-  return `אתה מגיה מומחה. קיבלת תמלול Whisper בעברית עם שגיאות אופייניות.
-
-## המשימה
-תקן שגיאות כתיב פונטיות. הוסף פיסוק בסיסי. שמור על כל מילה שהדובר אמר.
-
-## 3 כללים בלתי ניתנים לשבירה
-
-1. **פענוח פונטי בלבד**: תקן רק כשהמילה השגויה *נשמעת* כמו המילה הנכונה.
-   Whisper שומע צלילים וכותב אותיות — אם הצליל דומה, זה תיקון לגיטימי.
-   אם הצליל שונה, זה החלפה אסורה.
-
-2. **אל תחליף מילים**: הדובר *בחר* מילה. גם אם "הלך" פחות מתאים מ"צעד" — הדובר אמר "הלך". נקודה.
-
-3. **סגמנטים עצמאיים**: כל [index] הוא יחידה נפרדת עם תזמון משלה. אסור להעביר מילים בין סגמנטים, למזג או לפצל סגמנטים.
-
-## דוגמאות — תיקון לגיטימי ✓
-
-| Whisper כתב | תיקון | סיבה |
-|---|---|---|
-| תהרה | טהרה | ת↔ט — פונטי |
-| ברחו | ברוך הוא | צלילים דומים, מיזוג שגוי |
-| בגצל | בגיא צל | מיזוג שגוי, צלילים דומים |
-| שליטא | שליט"א | גרשיים חסרים |
-| האישועות | הישועות | א' רפאים מיותרת |
-| עם עדי | עמדי | פיצול שגוי |
-| אני חושב שזה | אני חושב שזה | תקין — אל תשנה! |
-
-## דוגמאות — תיקון אסור ✗
-
-| Whisper כתב | תיקון שגוי | למה אסור |
-|---|---|---|
-| הלך | צעד | צליל שונה לגמרי |
-| אמר | ציין | צליל שונה |
-| גדול | עצום | החלפה סמנטית |
-| רוצה | צריך | הדובר אמר רוצה |
-| נדבר | נוצר | שום קשר פונטי |
-
-## החלפות פונטיות שכיחות ב-Whisper
-
-א↔ע, ח↔כ, ט↔ת, ס↔ש, ק↔כ, צ↔ס, ה↔ח, ב↔ו (נדיר)
-
-## מה לתקן
-
-- אותיות שנשמעות דומה שהתחלפו (א↔ע, ח↔כ, ט↔ת וכו')
-- מילים שWhisper מיזג (בגצל → בגיא צל) — מותר +1/+2 מילים
-- מילים שWhisper פיצל (עם עדי → עמדי) — מותר -1/-2 מילים
-- קיצורים וגרשיים: רמבם→רמב"ם, שליטא→שליט"א, צהל→צה"ל, בגץ→בג"ץ
-- א' רפאים מיותרת: האישועה→הישועה, אהולך→הולך
-- פיסוק בסיסי: נקודה בסוף משפט, פסיק לפני מילת קישור, סימן שאלה לשאלות
-- התאמת מין/מספר רק כשברור שWhisper טעה (לא דיבור חופשי)
-
-## מה לא לעשות
-
-- לא להחליף מילה למילה שלא נשמעת דומה
-- לא למחוק מילות מילוי (אה, אממ, כאילו, נו) — עוגני תזמון
-- לא לשפר סגנון / לפרמל שפה מדוברת
-- לא לשנות שמות/מותגים/מקומות
-- לא לשנות סדר מילים
-- לא להעביר מילים בין סגמנטים
-- לא להוסיף מילים שלא נאמרו
-
-## מבחן עצמי לפני כל תיקון
-
-"האם התיקון שלי נשמע דומה למה שWhisper כתב?"
-כן → לגיטימי. לא → אסור. ספק → אל תשנה.
-
-## פורמט
-
-[index] טקסט מתוקן
-
-שורה אחת לכל סגמנט. אסור לדלג על סגמנטים. אסור להוסיף הסברים.`;
-}
-
-// ══════════════════════════════════════════════════════════════
-// STEP 2C: AI API (Sonnet) + PARSING
+// STEP 2B: AI API + PARSING (unchanged transport, new prompt)
 // ══════════════════════════════════════════════════════════════
 
 async function callAI(
@@ -438,7 +403,6 @@ async function callAI(
       const status = response.status;
       console.warn(`[AI] API error: ${status}`);
 
-      // Rate limit — wait and retry once
       if (status === 429) {
         const retryAfter = parseInt(response.headers.get("retry-after") || "5");
         console.log(`[AI] Rate limited, waiting ${retryAfter}s...`);
@@ -483,7 +447,6 @@ function parseCorrections(output: string): Array<{ idx: number; text: string }> 
     const m = line.match(/\[(\d+)(?:\|[^\]]+)?\]\s*(.*)/);
     if (m && m[2].trim()) {
       let text = m[2].trim();
-      // Strip format artifacts AI might echo back
       text = text.replace(/^\(\d+w\)\s*/, "");
       text = text.replace(/^\*{1,3}\s*/, "");
       text = text.trim();
@@ -496,23 +459,20 @@ function parseCorrections(output: string): Array<{ idx: number; text: string }> 
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2D: APPLY CORRECTIONS — SEGMENT-TIMESTAMP-LOCKED
+// STEP 2C: APPLY CORRECTIONS — PUNCTUATION-ONLY ENFORCEMENT
 // ══════════════════════════════════════════════════════════════
+//
+// STRICT RULES:
+// 1. word count MUST be identical (any change → reject)
+// 2. word identity (punctuation-stripped) MUST match position-by-position
+// 3. only punctuation diffs are accepted
+// 4. timestamps NEVER move
+//
 
-function redistributeWordTimestamps(
-  corrWords: string[],
-  segStart: number,
-  segEnd: number,
-): Word[] {
-  const totalDur = segEnd - segStart;
-  const n = corrWords.length;
-  if (n === 0) return [];
-  const wordDur = totalDur / n;
-  return corrWords.map((w, i) => ({
-    start: +(segStart + i * wordDur).toFixed(3),
-    end: +(segStart + (i + 1) * wordDur).toFixed(3),
-    word: w,
-  }));
+const PUNCT_REGEX = /[.!?,;:"""״'''\-—…·()\[\]{}]/g;
+
+function stripPunct(w: string): string {
+  return w.replace(PUNCT_REGEX, "");
 }
 
 function applyCorrections(
@@ -529,72 +489,45 @@ function applyCorrections(
 
     const origWords = seg.text.split(/\s+/).filter((w) => w);
     const corrWords = correction.text.split(/\s+/).filter((w) => w);
-    const wordDiff = Math.abs(corrWords.length - origWords.length);
 
-    const maxWordDiff = origWords.length >= 10
-      ? AI_CONFIG.maxWordDiffLong
-      : AI_CONFIG.maxWordDiffShort;
-
-    // REJECT if word count changed too much
-    if (wordDiff > maxWordDiff) {
+    // RULE 1: word count must be identical
+    if (origWords.length !== corrWords.length) {
       console.warn(
-        `[${passName}] REJECTED seg ${i} (words ${origWords.length}→${corrWords.length}): "${seg.text.trim().substring(0, 60)}" → "${correction.text.substring(0, 60)}"`,
+        `[${passName}] REJECTED seg ${i} (word count ${origWords.length}→${corrWords.length}): "${seg.text.trim().substring(0, 60)}"`,
       );
       rejected++;
       return seg;
     }
 
-    // Check if anything actually changed (ignoring punctuation)
-    const stripPunct = (w: string) => w.replace(/[.!?,;:"""״'''\-—…·]/g, "");
-    const origClean = origWords.map(stripPunct).join(" ");
-    const corrClean = corrWords.map(stripPunct).join(" ");
-
-    if (origClean === corrClean) {
-      // Punctuation-only change → always accept
-      if (seg.text.trim() !== correction.text) {
-        accepted++;
-        const newWords = seg.words.map((w, wi) => ({
-          start: w.start,
-          end: w.end,
-          probability: w.probability,
-          word: wi < corrWords.length ? corrWords[wi] : w.word,
-        }));
-        return { start: seg.start, end: seg.end, text: correction.text, words: newWords };
+    // RULE 2: each word, with punctuation stripped, must match exactly
+    for (let wi = 0; wi < origWords.length; wi++) {
+      const o = stripPunct(origWords[wi]);
+      const c = stripPunct(corrWords[wi]);
+      if (o !== c) {
+        console.warn(
+          `[${passName}] REJECTED seg ${i} (word changed: "${o}" → "${c}"): "${seg.text.trim().substring(0, 60)}"`,
+        );
+        rejected++;
+        return seg;
       }
+    }
+
+    // No actual diff?
+    if (seg.text.trim() === correction.text.trim()) {
       return seg;
     }
 
-    // Substantive text change → Levenshtein check
-    const dist = levenshtein(origClean, corrClean);
-    const garbage = isGarbageSegment(seg.text);
-    const threshold = garbage ? AI_CONFIG.levThresholdGarbage : AI_CONFIG.levThreshold;
-
-    if (dist > threshold) {
-      console.warn(
-        `[${passName}] REJECTED seg ${i} (lev ${(dist * 100).toFixed(0)}%): "${seg.text.trim().substring(0, 60)}" → "${correction.text.substring(0, 60)}"`,
-      );
-      rejected++;
-      return seg;
-    }
-
-    // ACCEPTED
+    // ACCEPTED — punctuation-only change. Timestamps locked.
     accepted++;
-
-    let newWords: Word[];
-
-    if (wordDiff === 0) {
-      newWords = seg.words.map((w, wi) => ({
-        start: w.start,     // LOCKED
-        end: w.end,         // LOCKED
-        probability: w.probability,
-        word: wi < corrWords.length ? corrWords[wi] : w.word,
-      }));
-    } else {
-      newWords = redistributeWordTimestamps(corrWords, seg.start, seg.end);
-    }
+    const newWords = seg.words.map((w, wi) => ({
+      start: w.start,     // LOCKED
+      end: w.end,         // LOCKED
+      probability: w.probability,
+      word: wi < corrWords.length ? corrWords[wi] : w.word,
+    }));
 
     console.log(
-      `[${passName}] OK seg ${i} (lev ${(dist * 100).toFixed(0)}%, wc ${origWords.length}→${corrWords.length}): "${seg.text.trim().substring(0, 50)}" → "${correction.text.substring(0, 50)}"`,
+      `[${passName}] OK seg ${i} (punct): "${seg.text.trim().substring(0, 50)}" → "${correction.text.substring(0, 50)}"`,
     );
 
     return {
@@ -622,13 +555,8 @@ function levenshtein(a: string, b: string): number {
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2E: SINGLE-PASS ORCHESTRATOR WITH BATCHING
+// STEP 2D: BATCHING + ORCHESTRATOR (single punctuation pass)
 // ══════════════════════════════════════════════════════════════
-//
-// v10 CHANGE: Single pass instead of 2.
-// Sonnet is good enough to do phonetic correction + punctuation in one pass.
-// This saves 50% AI cost and reduces latency.
-//
 
 function makeBatches(segs: TimedSegment[]): Array<{ startIdx: number; segs: TimedSegment[] }> {
   const { batchSize, batchOverlap } = AI_CONFIG;
@@ -648,15 +576,13 @@ function makeBatches(segs: TimedSegment[]): Array<{ startIdx: number; segs: Time
   return batches;
 }
 
-async function runCorrectionPass(
+async function runPunctuationPass(
   allSegs: TimedSegment[],
   batches: Array<{ startIdx: number; segs: TimedSegment[] }>,
   systemPrompt: string,
-  confHints: string = "",
 ): Promise<{ segments: TimedSegment[]; accepted: number; rejected: number }> {
   const allCorrections: Array<{ idx: number; text: string }> = [];
 
-  // Run batches in parallel (up to 3 concurrent)
   const CONCURRENCY = 3;
   const batchPromises: Array<Promise<void>> = [];
 
@@ -664,9 +590,7 @@ async function runCorrectionPass(
     const batch = batches[bi];
 
     const promise = (async (batchIndex: number) => {
-      const input = batch.segs.map((s, localIdx) => {
-        return `[${localIdx}] ${s.text}`;
-      }).join("\n") + (batchIndex === 0 ? confHints : "");
+      const input = batch.segs.map((s, localIdx) => `[${localIdx}] ${s.text}`).join("\n");
 
       console.log(`[AI] Batch ${batchIndex + 1}/${batches.length} — ${batch.segs.length} segs`);
       const output = await callAI(input, systemPrompt);
@@ -686,10 +610,8 @@ async function runCorrectionPass(
 
     batchPromises.push(promise);
 
-    // Throttle concurrency
     if (batchPromises.length >= CONCURRENCY) {
       await Promise.race(batchPromises);
-      // Clean up resolved promises
       const pending: Array<Promise<void>> = [];
       for (const p of batchPromises) {
         const result = await Promise.race([p, Promise.resolve("pending")]);
@@ -700,17 +622,16 @@ async function runCorrectionPass(
     }
   }
 
-  // Wait for remaining batches
   await Promise.all(batchPromises);
 
   if (allCorrections.length === 0) {
     return { segments: allSegs, accepted: 0, rejected: 0 };
   }
 
-  return applyCorrections(allSegs, allCorrections, "CORRECT");
+  return applyCorrections(allSegs, allCorrections, "PUNCT");
 }
 
-async function aiCorrect(
+async function aiPunctuate(
   timedSegs: TimedSegment[],
   language: string,
 ): Promise<{ segments: TimedSegment[]; method: string }> {
@@ -718,24 +639,20 @@ async function aiCorrect(
     return { segments: timedSegs, method: "none" };
   }
 
-  if (language !== "he") {
-    return aiCorrectNonHebrew(timedSegs, language);
-  }
-
   try {
-    const confHints = buildConfidenceHints(timedSegs);
+    const systemPrompt = language === "he"
+      ? buildPunctuationPrompt()
+      : buildPunctuationPromptNonHebrew(language);
+
     const batches = makeBatches(timedSegs);
     console.log(`[AI] ${timedSegs.length} segs → ${batches.length} batch(es) of ≤${AI_CONFIG.batchSize}`);
 
-    const systemPrompt = buildCorrectionPrompt();
-    const result = await runCorrectionPass(
-      timedSegs, batches, systemPrompt, confHints,
-    );
+    const result = await runPunctuationPass(timedSegs, batches, systemPrompt);
 
-    console.log(`[AI] Result: ${result.accepted} accepted, ${result.rejected} rejected`);
+    console.log(`[AI] Punct pass: ${result.accepted} accepted, ${result.rejected} rejected`);
     return {
       segments: result.segments,
-      method: `sonnet_1pass_${batches.length}bat`,
+      method: `punct_only_${batches.length}bat_${result.accepted}acc`,
     };
   } catch (e: any) {
     console.error("[AI] Error:", e.message || e);
@@ -743,33 +660,18 @@ async function aiCorrect(
   }
 }
 
-async function aiCorrectNonHebrew(
-  timedSegs: TimedSegment[],
-  language: string,
-): Promise<{ segments: TimedSegment[]; method: string }> {
-  const langName = language === "ar" ? "Arabic" : "English";
-  const prompt = `Fix ${langName} Whisper transcription errors. Add proper punctuation.
-
-CRITICAL: Every output segment MUST have EXACTLY the same word count as input (±2 max).
-Punctuation attaches to the preceding word (no extra word count).
-
-Format: [index] corrected text — one per line, every segment.`;
-
-  const input = timedSegs.map((s, i) => `[${i}] ${s.text}`).join("\n");
-  const output = await callAI(input, prompt, 30000);
-  if (!output) return { segments: timedSegs, method: "api_error" };
-
-  const corrections = parseCorrections(output);
-  if (corrections.length === 0) return { segments: timedSegs, method: "empty_response" };
-
-  const { segments, accepted, rejected } = applyCorrections(timedSegs, corrections, "SINGLE");
-  console.log(`[AI] Single-pass: ${accepted} accepted, ${rejected} rejected`);
-  return { segments, method: accepted > 0 ? "claude_single" : "no_changes" };
-}
-
 // ══════════════════════════════════════════════════════════════
-// STEP 3: SPLITTING (unchanged from v9.1)
+// STEP 3: SPLITTING — UPDATED FOR USER SPEC
 // ══════════════════════════════════════════════════════════════
+//
+// MODES:
+// - "sentence"    → split on .!? boundaries (uses AI-added punctuation)
+// - "word1"       → STRICT 1 word per segment (TikTok). No exceptions.
+// - "word2","word3" → fixed N with binding override (existing behavior)
+// - "word4","word5","word6" → smart: looks for sentence-end / pause / comma
+//                               near target to break at natural boundary
+// - "auto" / unspecified → splitAuto (sentence-aware char/duration split)
+//
 
 function applySplitting(segs: TimedSegment[], style: string, wpg: number): Segment[] {
   const all: Word[] = [];
@@ -803,13 +705,78 @@ function splitSentence(all: Word[]): Segment[] {
   return r;
 }
 
+/**
+ * splitWords — UPDATED v10.1
+ *
+ * • gs === 1 (TikTok): STRICT — every word is its own segment.
+ *                      No binding overrides, no exceptions.
+ * • gs === 2 or 3:     existing behavior — binding override allows up to gs+2
+ *                      to keep linked phrases (e.g. "הרב X", "של Y") together.
+ * • gs >= 4:           smart — when c.length is between gs-1 and gs+slack:
+ *                      - break early on .!? (natural sentence end)
+ *                      - break on comma at target
+ *                      - break on time gap > pauseGapSec to next word
+ *                      - extend on binding (up to gs + bindingExtraSlots)
+ */
 function splitWords(all: Word[], gs: number): Segment[] {
+  // STRICT TikTok mode — exactly one word per segment, always.
+  if (gs === 1) {
+    return all.map((w) => mkSeg([w]));
+  }
+
   const r: Segment[] = [];
   let c: Word[] = [];
+
   for (let i = 0; i < all.length; i++) {
     c.push(all[i]);
+
+    // ── Smart-break logic for gs >= 4 ──────────────────────────
+    if (gs >= 4) {
+      const trimmed = all[i].word.trim();
+
+      // Already at (gs - 1) and current word ends a sentence → break early.
+      // Better to land on a complete sentence than to grab one extra word.
+      if (
+        c.length >= gs - SPLIT_CONFIG.earlyBreakSlackBefore &&
+        /[.!?]$/.test(trimmed)
+      ) {
+        r.push(mkSeg(c)); c = [];
+        continue;
+      }
+
+      // At target and current word ends a sentence → break.
+      if (c.length >= gs && /[.!?]$/.test(trimmed)) {
+        r.push(mkSeg(c)); c = [];
+        continue;
+      }
+
+      // At target and there's a pause to the next word → break (natural cadence).
+      if (
+        c.length >= gs &&
+        i + 1 < all.length &&
+        all[i + 1].start - all[i].end >= SPLIT_CONFIG.pauseGapSec
+      ) {
+        r.push(mkSeg(c)); c = [];
+        continue;
+      }
+
+      // At target and current word ends with comma → break (clause boundary).
+      if (c.length >= gs && /,$/.test(trimmed)) {
+        r.push(mkSeg(c)); c = [];
+        continue;
+      }
+    }
+
+    // ── Standard logic for gs >= 2 ─────────────────────────────
     if (c.length >= gs) {
-      if (i + 1 < all.length && isBound(all[i], all[i + 1]) && c.length < gs + 2) continue;
+      // Binding override: keep linked phrases together within slack.
+      if (
+        i + 1 < all.length &&
+        isBound(all[i], all[i + 1]) &&
+        c.length < gs + SPLIT_CONFIG.bindingExtraSlots
+      ) {
+        continue;
+      }
       r.push(mkSeg(c)); c = [];
     }
   }
@@ -817,6 +784,18 @@ function splitWords(all: Word[], gs: number): Segment[] {
   return r;
 }
 
+/**
+ * splitAuto — sentence-aware split for "auto" mode.
+ *
+ * UNCHANGED structurally, but the upstream now feeds it AI-punctuated text.
+ * That means .!? markers actually exist where sentences end, so this:
+ *   • breaks cleanly at sentence boundaries (no more mid-sentence cuts at HARD)
+ *   • countTail still pushes dangling connectors (של, את, ו, etc.) to next line
+ *   • countChain extends across binding pairs ("הרב X", "ארץ ישראל")
+ *
+ * Net effect for the user: lines end at proper sentence/clause boundaries,
+ * and stray words don't "leak" to start the next line.
+ */
 function splitAuto(all: Word[]): Segment[] {
   const SOFT = 38, HARD = 50, MAXD = 4;
   const r: Segment[] = [];
@@ -829,15 +808,20 @@ function splitAuto(all: Word[]): Segment[] {
     ct = ct ? ct + " " + w.word : w.word;
     const dur = c.length > 1 ? w.end - c[0].start : 0;
 
+    // Hard sentence boundary — always break.
     if (/[.!?]$/.test(w.word.trim())) { r.push(mkSeg(c)); c = []; ct = ""; continue; }
+
+    // Comma + reasonable length — break.
     if (/,$/.test(w.word.trim()) && ct.length >= 20) { r.push(mkSeg(c)); c = []; ct = ""; continue; }
 
+    // Soft length threshold — try to break at a good spot.
     if (ct.length >= SOFT && c.length >= 2) {
       const chain = countChain(all, i + 1);
       if (chain === 0) { r.push(mkSeg(c)); c = []; ct = ""; continue; }
       let extra = 0;
       for (let x = 1; x <= chain && i + x < all.length; x++) extra += all[i + x].word.length + 1;
       if (ct.length + extra <= HARD) continue;
+      // Pull dangling tail words (connectors) into next segment.
       const lb = countTail(c);
       if (lb > 0 && c.length - lb >= 2) {
         r.push(mkSeg(c.slice(0, c.length - lb)));
@@ -848,6 +832,7 @@ function splitAuto(all: Word[]): Segment[] {
       r.push(mkSeg(c)); c = []; ct = ""; continue;
     }
 
+    // Hard length / duration threshold — must break.
     if (ct.length >= HARD || dur >= MAXD) { r.push(mkSeg(c)); c = []; ct = ""; continue; }
   }
   if (c.length > 0) r.push(mkSeg(c));
@@ -939,7 +924,7 @@ function buildSrt(segs: Segment[], lang: string = "he"): string {
 }
 
 // ══════════════════════════════════════════════════════════════
-// MAIN HANDLER — Called internally by /api/transcribe
+// MAIN HANDLER — unchanged flow, AI step relabeled "punctuation"
 // ══════════════════════════════════════════════════════════════
 
 export async function POST(req: NextRequest) {
@@ -950,7 +935,6 @@ export async function POST(req: NextRequest) {
     const { job_id, secret } = body;
     jobId = job_id;
 
-    // Security: only allow internal calls
     if (secret !== PROCESS_SECRET) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -959,7 +943,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing job_id" }, { status: 400 });
     }
 
-    // Fetch the job from DB
     const { data: job, error: jobErr } = await supabase
       .from("transcription_jobs")
       .select("*")
@@ -981,8 +964,6 @@ export async function POST(req: NextRequest) {
     const audioDur = audio_duration || 0;
 
     // ── STEP 1: Modal Whisper ──
-    // NOTE: Update your Modal endpoint to use ivrit-ai/whisper-large-v3-ct2
-    // with the optimized parameters (see analysis.md)
     await updateJobStatus(job_id, "whisper");
     console.log(`[PROCESS] Job ${job_id} — Sending to Whisper...`);
 
@@ -992,7 +973,6 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         audio_url: download_url,
         lang: lang || "he",
-        // NEW: Pass optimized config to Modal
         beam_size: 5,
         best_of: 5,
         vad_filter: true,
@@ -1050,9 +1030,9 @@ export async function POST(req: NextRequest) {
     // ── STEP 2: Build timed segments (timestamps LOCKED) ──
     const timedSegs = buildTimedSegments(cleaned.segments, cleaned.words);
 
-    // ── STEP 3: AI Correction (SINGLE PASS — Sonnet) ──
-    await updateJobStatus(job_id, "ai_correction");
-    const aiResult = await aiCorrect(timedSegs, lang || "he");
+    // ── STEP 3: AI Punctuation Pass (no word changes allowed) ──
+    await updateJobStatus(job_id, "punctuation");
+    const aiResult = await aiPunctuate(timedSegs, lang || "he");
 
     // ── STEP 4: Split ──
     const wpg = parseInt(words_per_group) || 1;
@@ -1069,7 +1049,6 @@ export async function POST(req: NextRequest) {
     );
     await deductMinutes(user_id, mins);
 
-    // Get remaining minutes for response
     const { data: profile } = await supabase
       .from("profiles")
       .select("minutes_used, minutes_limit")
@@ -1090,7 +1069,9 @@ export async function POST(req: NextRequest) {
           count: final.length,
           minutes_charged: mins,
           minutes_remaining: remaining,
-          ai_correction: aiResult.method,
+          ai_punctuation: aiResult.method,
+          caption_style: caption_style || "auto",
+          words_per_group: wpg,
         },
         completed_at: new Date().toISOString(),
       })
