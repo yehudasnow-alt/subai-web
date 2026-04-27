@@ -1,27 +1,24 @@
 import "./globals.css";
 import type { Metadata } from "next";
+import Script from "next/script";
 
 export const metadata: Metadata = {
-  title: "SubAI — כתוביות אוטומטיות בעברית לפרמייר פרו",
-  description: "תוסף כתוביות אוטומטי ל-Adobe Premiere Pro. תמלול בעברית,  עם AI. ייצוא SRT ישירות לטיימליין. הכי מדויק בשוק הישראלי.",
-  keywords: "כתוביות פרמייר פרו, תמלול אוטומטי עברית, כתוביות אוטומטיות, תוסף כתוביות, SRT עברית, subtitle premiere pro, תמלול וידאו, כתוביות לסרטונים, תמלול AI, כתוביות טיקטוק, כתוביות רילס, עריכת וידאו",
+  metadataBase: new URL("https://subai.co.il"),
+  alternates: {
+    canonical: "https://subai.co.il",
+  },
+  title: "SubAI — כתוביות AI בעברית לפרמייר פרו",
+  description: "תמלול אוטומטי מדויק בעברית ישירות בתוך Adobe Premiere Pro. מופעל על ידי Whisper AI + Claude.",
+  keywords: "כתוביות, תמלול, עברית, Premiere Pro, AI, Whisper, פלאגין, subtitle, transcription",
   openGraph: {
     title: "SubAI — כתוביות AI לפרמייר פרו",
-    description: "תמלול אוטומטי מדויק בעברית ישירות בתוך Premiere Pro. התקנה בדקה, תמלול ב-30 שניות.",
+    description: "תמלול אוטומטי מדויק בעברית ישירות בתוך Premiere Pro",
+    url: "https://subai.co.il",
     type: "website",
     siteName: "SubAI",
-    url: "https://www.subai.co.il",
-    locale: "he_IL",
   },
   verification: {
     google: "BnaHBDpFLqb7f8eTjb84LKNlSOQpFajr_cL1K2QrFIw",
-  },
-  alternates: {
-    canonical: "https://www.subai.co.il",
-  },
-  robots: {
-    index: true,
-    follow: true,
   },
 };
 
@@ -31,6 +28,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <Script
+          src="https://www.googletagmanager.com/gtag/js?id=G-NZS5FQH1W7"
+          strategy="afterInteractive"
+        />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', 'G-NZS5FQH1W7');
+          `}
+        </Script>
       </head>
       <body>{children}</body>
     </html>
