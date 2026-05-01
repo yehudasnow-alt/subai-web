@@ -1,23 +1,25 @@
 /**
- * SubAI — Transcription Engine v10.1 (Punctuation-Only AI + Smart Splitting)
+ * SubAI — Transcription Engine v10.2 (Plain Text + Sentence-Aware Auto Split)
  * ═══════════════════════════════════════════════════════════════
  * ASYNC PROCESSING ENDPOINT — Called internally by /api/transcribe
  *
- * CHANGES FROM v10.0:
+ * CHANGES FROM v10.1:
  * ═══════════════════════════════════════════════════════════════
- * 1. AI scope DRASTICALLY reduced:
- *    - v10.0: phonetic word correction + punctuation
- *    - v10.1: PUNCTUATION ONLY. AI never changes any word.
- * 2. Strict acceptance: ANY word-level change → automatic reject.
- *    Only pure-punctuation diffs are applied.
- * 3. Confidence hints removed (no longer needed for word correction).
- * 4. splitWords:
- *    - word1 (TikTok): STRICT 1-word — no binding overrides.
- *    - word2/word3: unchanged behavior.
- *    - word4+: looks ahead for sentence-end (.!?), pause >0.45s,
- *      or comma when at target — produces contextual chunks.
- * 5. splitAuto unchanged in structure but now benefits from AI
- *    punctuation: real sentence breaks instead of arbitrary char-limit cuts.
+ * 1. SRT output is now PLAIN TEXT — no invisible RTL wrappers
+ *    (RLE / RLM / PDF removed). Editors that auto-detect Hebrew/Arabic
+ *    will still render right-to-left; the file is just clean text.
+ * 2. splitAuto rewritten to be sentence-aware:
+ *    - At SOFT length, looks ahead for the next sentence-end (.!?)
+ *      or comma (,). If reachable within HARD, WAITS for it instead
+ *      of breaking mid-clause.
+ *    - This eliminates the "זנב של המשפט הקודם פותח את הבא" bug,
+ *      e.g. "יהודה אוהב לאכול" / "בננה, ומשה אוהב פיסטוק" — the
+ *      splitter now extends to the comma and produces:
+ *      "יהודה אוהב לאכול בננה," / "ומשה אוהב פיסטוק."
+ *    - Hard cap (HARD chars / MAXD seconds) still enforced as a
+ *      safety net when sentences are too long to fit a single line.
+ *    - countTail still pulls dangling connectors forward when a
+ *      forced break is unavoidable.
  *
  * IRON LAW: SRT TIMESTAMPS ARE WHISPER'S ORIGINALS — NEVER MODIFIED.
  *           AI may only add/adjust punctuation; word count must match.
@@ -270,16 +272,8 @@ function filterHallucinations(
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2A: PUNCTUATION-ONLY PROMPT (NEW — replaces phonetic correction)
+// STEP 2A: PUNCTUATION-ONLY PROMPT (unchanged from v10.1)
 // ══════════════════════════════════════════════════════════════
-//
-// PHILOSOPHY:
-// - The AI no longer corrects words.
-// - Sole job: add punctuation marks (. , ? ! :) where missing.
-// - Word count MUST be identical between input and output.
-// - Word identity (after stripping punctuation) MUST be identical.
-// - Anything else gets rejected by applyCorrections() automatically.
-//
 
 function buildPunctuationPrompt(): string {
   return `אתה מומחה לפיסוק בעברית. קיבלת תמלול בעברית בלי פיסוק (או עם פיסוק חלקי).
@@ -368,7 +362,7 @@ One line per [index]. Include all indices. No explanations.`;
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2B: AI API + PARSING (unchanged transport, new prompt)
+// STEP 2B: AI API + PARSING (unchanged transport)
 // ══════════════════════════════════════════════════════════════
 
 async function callAI(
@@ -461,13 +455,6 @@ function parseCorrections(output: string): Array<{ idx: number; text: string }> 
 // ══════════════════════════════════════════════════════════════
 // STEP 2C: APPLY CORRECTIONS — PUNCTUATION-ONLY ENFORCEMENT
 // ══════════════════════════════════════════════════════════════
-//
-// STRICT RULES:
-// 1. word count MUST be identical (any change → reject)
-// 2. word identity (punctuation-stripped) MUST match position-by-position
-// 3. only punctuation diffs are accepted
-// 4. timestamps NEVER move
-//
 
 const PUNCT_REGEX = /[.!?,;:"""״'''\-—…·()\[\]{}]/g;
 
@@ -555,7 +542,7 @@ function levenshtein(a: string, b: string): number {
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 2D: BATCHING + ORCHESTRATOR (single punctuation pass)
+// STEP 2D: BATCHING + ORCHESTRATOR (unchanged)
 // ══════════════════════════════════════════════════════════════
 
 function makeBatches(segs: TimedSegment[]): Array<{ startIdx: number; segs: TimedSegment[] }> {
@@ -661,17 +648,8 @@ async function aiPunctuate(
 }
 
 // ══════════════════════════════════════════════════════════════
-// STEP 3: SPLITTING — UPDATED FOR USER SPEC
+// STEP 3: SPLITTING — v10.2
 // ══════════════════════════════════════════════════════════════
-//
-// MODES:
-// - "sentence"    → split on .!? boundaries (uses AI-added punctuation)
-// - "word1"       → STRICT 1 word per segment (TikTok). No exceptions.
-// - "word2","word3" → fixed N with binding override (existing behavior)
-// - "word4","word5","word6" → smart: looks for sentence-end / pause / comma
-//                               near target to break at natural boundary
-// - "auto" / unspecified → splitAuto (sentence-aware char/duration split)
-//
 
 function applySplitting(segs: TimedSegment[], style: string, wpg: number): Segment[] {
   const all: Word[] = [];
@@ -706,20 +684,13 @@ function splitSentence(all: Word[]): Segment[] {
 }
 
 /**
- * splitWords — UPDATED v10.1
+ * splitWords — unchanged from v10.1
  *
  * • gs === 1 (TikTok): STRICT — every word is its own segment.
- *                      No binding overrides, no exceptions.
- * • gs === 2 or 3:     existing behavior — binding override allows up to gs+2
- *                      to keep linked phrases (e.g. "הרב X", "של Y") together.
- * • gs >= 4:           smart — when c.length is between gs-1 and gs+slack:
- *                      - break early on .!? (natural sentence end)
- *                      - break on comma at target
- *                      - break on time gap > pauseGapSec to next word
- *                      - extend on binding (up to gs + bindingExtraSlots)
+ * • gs === 2 or 3:     binding override allows up to gs+2.
+ * • gs >= 4:           smart sentence/pause/comma awareness.
  */
 function splitWords(all: Word[], gs: number): Segment[] {
-  // STRICT TikTok mode — exactly one word per segment, always.
   if (gs === 1) {
     return all.map((w) => mkSeg([w]));
   }
@@ -730,12 +701,9 @@ function splitWords(all: Word[], gs: number): Segment[] {
   for (let i = 0; i < all.length; i++) {
     c.push(all[i]);
 
-    // ── Smart-break logic for gs >= 4 ──────────────────────────
     if (gs >= 4) {
       const trimmed = all[i].word.trim();
 
-      // Already at (gs - 1) and current word ends a sentence → break early.
-      // Better to land on a complete sentence than to grab one extra word.
       if (
         c.length >= gs - SPLIT_CONFIG.earlyBreakSlackBefore &&
         /[.!?]$/.test(trimmed)
@@ -744,13 +712,11 @@ function splitWords(all: Word[], gs: number): Segment[] {
         continue;
       }
 
-      // At target and current word ends a sentence → break.
       if (c.length >= gs && /[.!?]$/.test(trimmed)) {
         r.push(mkSeg(c)); c = [];
         continue;
       }
 
-      // At target and there's a pause to the next word → break (natural cadence).
       if (
         c.length >= gs &&
         i + 1 < all.length &&
@@ -760,16 +726,13 @@ function splitWords(all: Word[], gs: number): Segment[] {
         continue;
       }
 
-      // At target and current word ends with comma → break (clause boundary).
       if (c.length >= gs && /,$/.test(trimmed)) {
         r.push(mkSeg(c)); c = [];
         continue;
       }
     }
 
-    // ── Standard logic for gs >= 2 ─────────────────────────────
     if (c.length >= gs) {
-      // Binding override: keep linked phrases together within slack.
       if (
         i + 1 < all.length &&
         isBound(all[i], all[i + 1]) &&
@@ -785,56 +748,155 @@ function splitWords(all: Word[], gs: number): Segment[] {
 }
 
 /**
- * splitAuto — sentence-aware split for "auto" mode.
+ * splitAuto — REWRITTEN in v10.2
  *
- * UNCHANGED structurally, but the upstream now feeds it AI-punctuated text.
- * That means .!? markers actually exist where sentences end, so this:
- *   • breaks cleanly at sentence boundaries (no more mid-sentence cuts at HARD)
- *   • countTail still pushes dangling connectors (של, את, ו, etc.) to next line
- *   • countChain extends across binding pairs ("הרב X", "ארץ ישראל")
+ * Goal: a new line should NEVER start with the tail of the previous sentence.
  *
- * Net effect for the user: lines end at proper sentence/clause boundaries,
- * and stray words don't "leak" to start the next line.
+ * Rules in order of priority:
+ *  1. Word ends with .!?  → break immediately (sentence end).
+ *  2. Word ends with ","  AND ct.length ≥ 20 → break immediately (clause end).
+ *  3. ct.length ≥ HARD or duration ≥ MAXD → MUST break:
+ *       - if there's a comma earlier in the chunk, break THERE (clean clause)
+ *       - else use countTail to push connectors forward
+ *       - else hard cut
+ *  4. ct.length ≥ SOFT and at least 2 words →
+ *       - look ahead: is there a .!? or "," reachable within HARD?
+ *           → YES: keep accumulating (wait for the natural boundary)
+ *           → NO : check binding chain — extend if it fits within HARD
+ *           → else: break (preferring the last seen comma in chunk, then tail)
+ *
+ * Net effect:
+ *   "יהודה אוהב לאכול בננה, ומשה אוהב פיסטוק."
+ *   At "לאכול" we're at SOFT range; we look ahead, see "בננה,", reach it
+ *   within HARD → wait. At "בננה," the comma rule fires → clean break.
+ *   Result: ["יהודה אוהב לאכול בננה,"] ["ומשה אוהב פיסטוק."]
  */
 function splitAuto(all: Word[]): Segment[] {
   const SOFT = 38, HARD = 50, MAXD = 4;
   const r: Segment[] = [];
   let c: Word[] = [];
   let ct = "";
+  let lastCommaIdx = -1;  // index inside `c` where the most recent "," sits
+
+  // Look ahead from index `i` for the next word ending with .!?,
+  // returning true if reachable within HARD chars from currentLen.
+  const naturalBreakReachable = (i: number, currentLen: number): boolean => {
+    let extra = 0;
+    for (let j = i + 1; j < all.length; j++) {
+      extra += all[j].word.length + 1;
+      if (currentLen + extra > HARD) return false;
+      if (/[.!?,]$/.test(all[j].word.trim())) return true;
+    }
+    return false;
+  };
+
+  // Recompute lastCommaIdx for the current `c` (used after a partial flush).
+  const recomputeCommaIdx = () => {
+    lastCommaIdx = -1;
+    for (let j = 0; j < c.length; j++) {
+      if (/,$/.test(c[j].word.trim())) lastCommaIdx = j;
+    }
+  };
+
+  // Flush words c[0..upToIdx] (inclusive), keep the rest as a tail.
+  const flushUpTo = (upToIdx: number) => {
+    const head = c.slice(0, upToIdx + 1);
+    const tail = c.slice(upToIdx + 1);
+    if (head.length > 0) r.push(mkSeg(head));
+    c = tail;
+    ct = c.map((w) => w.word).join(" ");
+    recomputeCommaIdx();
+  };
+
+  // Flush everything in `c`.
+  const flushAll = () => {
+    if (c.length > 0) r.push(mkSeg(c));
+    c = [];
+    ct = "";
+    lastCommaIdx = -1;
+  };
 
   for (let i = 0; i < all.length; i++) {
     const w = all[i];
     c.push(w);
     ct = ct ? ct + " " + w.word : w.word;
+    const trimmed = w.word.trim();
     const dur = c.length > 1 ? w.end - c[0].start : 0;
 
-    // Hard sentence boundary — always break.
-    if (/[.!?]$/.test(w.word.trim())) { r.push(mkSeg(c)); c = []; ct = ""; continue; }
-
-    // Comma + reasonable length — break.
-    if (/,$/.test(w.word.trim()) && ct.length >= 20) { r.push(mkSeg(c)); c = []; ct = ""; continue; }
-
-    // Soft length threshold — try to break at a good spot.
-    if (ct.length >= SOFT && c.length >= 2) {
-      const chain = countChain(all, i + 1);
-      if (chain === 0) { r.push(mkSeg(c)); c = []; ct = ""; continue; }
-      let extra = 0;
-      for (let x = 1; x <= chain && i + x < all.length; x++) extra += all[i + x].word.length + 1;
-      if (ct.length + extra <= HARD) continue;
-      // Pull dangling tail words (connectors) into next segment.
-      const lb = countTail(c);
-      if (lb > 0 && c.length - lb >= 2) {
-        r.push(mkSeg(c.slice(0, c.length - lb)));
-        c = c.slice(c.length - lb);
-        ct = c.map((w) => w.word).join(" ");
-        continue;
-      }
-      r.push(mkSeg(c)); c = []; ct = ""; continue;
+    // ── Rule 1: hard sentence end → always break ──
+    if (/[.!?]$/.test(trimmed)) {
+      flushAll();
+      continue;
     }
 
-    // Hard length / duration threshold — must break.
-    if (ct.length >= HARD || dur >= MAXD) { r.push(mkSeg(c)); c = []; ct = ""; continue; }
+    // Track the most recent comma inside the current chunk.
+    if (/,$/.test(trimmed)) {
+      lastCommaIdx = c.length - 1;
+
+      // ── Rule 2: comma break when chunk has meaningful content ──
+      if (ct.length >= 20) {
+        flushAll();
+        continue;
+      }
+    }
+
+    // ── Rule 3: hard cap reached → must break, prefer last comma ──
+    if (ct.length >= HARD || dur >= MAXD) {
+      if (lastCommaIdx >= 1 && lastCommaIdx < c.length - 1) {
+        // Break at the last comma so the next segment starts cleanly.
+        flushUpTo(lastCommaIdx);
+        continue;
+      }
+      // No comma to lean on — push trailing connectors forward.
+      const lb = countTail(c);
+      if (lb > 0 && c.length - lb >= 2) {
+        const head = c.slice(0, c.length - lb);
+        const tail = c.slice(c.length - lb);
+        r.push(mkSeg(head));
+        c = tail;
+        ct = c.map((x) => x.word).join(" ");
+        recomputeCommaIdx();
+        continue;
+      }
+      flushAll();
+      continue;
+    }
+
+    // ── Rule 4: soft threshold — wait for a natural boundary if possible ──
+    if (ct.length >= SOFT && c.length >= 2) {
+      // (a) If a sentence-end or comma is reachable ahead within HARD, wait.
+      if (naturalBreakReachable(i, ct.length)) continue;
+
+      // (b) Otherwise, try to extend through a binding chain if it fits.
+      const chain = countChain(all, i + 1);
+      if (chain > 0) {
+        let chainExtra = 0;
+        for (let x = 1; x <= chain && i + x < all.length; x++) {
+          chainExtra += all[i + x].word.length + 1;
+        }
+        if (ct.length + chainExtra <= HARD) continue;
+      }
+
+      // (c) No good boundary ahead. Break, preferring last comma in chunk.
+      if (lastCommaIdx >= 1 && lastCommaIdx < c.length - 1) {
+        flushUpTo(lastCommaIdx);
+        continue;
+      }
+      // Else use tail logic.
+      const lb = countTail(c);
+      if (lb > 0 && c.length - lb >= 2) {
+        const head = c.slice(0, c.length - lb);
+        const tail = c.slice(c.length - lb);
+        r.push(mkSeg(head));
+        c = tail;
+        ct = c.map((x) => x.word).join(" ");
+        recomputeCommaIdx();
+        continue;
+      }
+      flushAll();
+    }
   }
+
   if (c.length > 0) r.push(mkSeg(c));
   return r;
 }
@@ -899,29 +961,19 @@ function countTail(c: Word[]): number {
 }
 
 // ══════════════════════════════════════════════════════════════
-// SRT BUILDER — RTL with full RLE/PDF wrapping (v10.1)
+// SRT BUILDER — v10.2 (PLAIN TEXT, no invisible RTL chars)
 // ══════════════════════════════════════════════════════════════
 //
-// Each Hebrew/Arabic line is wrapped as:
-//   RLE  +  RLM  +  text  +  RLM  +  PDF
+// The SRT now contains plain UTF-8 text, exactly as it was produced
+// by Whisper + the AI punctuation pass — no RLE/RLM/PDF wrapping.
 //
-// • RLE (U+202B) — opens an RTL embedding for the whole line
-// • RLM (U+200F) — pins punctuation/digits to the correct side
-// • PDF (U+202C) — closes the embedding cleanly
-//
-// All four chars are invisible. The text itself is unchanged.
-// Result: software that respects Unicode bidi (Premiere Pro 2022.1+,
-// DaVinci Resolve, modern Subtitle Edit, etc.) renders the line
-// right-aligned with punctuation in the correct place — no manual
-// "convert to RTL" button click needed.
+// Hebrew/Arabic editors that respect Unicode bidi (Premiere Pro,
+// DaVinci Resolve, Subtitle Edit, etc.) will still display the lines
+// right-to-left because the characters themselves are RTL. The file
+// is just clean and editable as-is.
 // ══════════════════════════════════════════════════════════════
 
-function buildSrt(segs: Segment[], lang: string = "he"): string {
-  const rtl = lang === "he" || lang === "ar";
-  const RLE = "\u202B";  // Right-to-Left Embedding (open)
-  const RLM = "\u200F";  // Right-to-Left Mark (punctuation anchor)
-  const PDF = "\u202C";  // Pop Directional Formatting (close)
-
+function buildSrt(segs: Segment[], _lang: string = "he"): string {
   const ts = (s: number) => {
     s = Math.max(0, s);
     const h = Math.floor(s / 3600);
@@ -935,15 +987,14 @@ function buildSrt(segs: Segment[], lang: string = "he"): string {
     .map((seg, i) => {
       const t = seg.text.trim();
       if (!t) return "";
-      const wrapped = rtl ? `${RLE}${RLM}${t}${RLM}${PDF}` : t;
-      return `${i + 1}\n${ts(seg.start)} --> ${ts(seg.end)}\n${wrapped}\n`;
+      return `${i + 1}\n${ts(seg.start)} --> ${ts(seg.end)}\n${t}\n`;
     })
     .filter(Boolean)
     .join("\n");
 }
 
 // ══════════════════════════════════════════════════════════════
-// MAIN HANDLER — unchanged flow, AI step relabeled "punctuation"
+// MAIN HANDLER (unchanged flow)
 // ══════════════════════════════════════════════════════════════
 
 export async function POST(req: NextRequest) {
@@ -1057,7 +1108,7 @@ export async function POST(req: NextRequest) {
     const wpg = parseInt(words_per_group) || 1;
     const final = applySplitting(aiResult.segments, caption_style || "auto", wpg);
 
-    // ── STEP 5: Build SRT ──
+    // ── STEP 5: Build SRT (plain text) ──
     const srt = buildSrt(final, lang || "he");
 
     // ── STEP 6: Log & deduct ──
