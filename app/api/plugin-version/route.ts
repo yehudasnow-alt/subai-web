@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 
-const CURRENT_VERSION = "4.3.0";
+const CURRENT_VERSION = "5.0.0";
 
 export async function GET() {
   return NextResponse.json({
     version: CURRENT_VERSION,
-    changelog: "v4.3.0 — Fix: poll check_job for v11 async transcribe pipeline (resolves 'לא נמצא דיבור בקטע')",
+    changelog: "v5.0.0 — Personal edition: Premiere → Modal relay → Whisper. No login, no AWS/Supabase/Vercel, no AI correction.",
   });
 }

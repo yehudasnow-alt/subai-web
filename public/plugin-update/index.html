@@ -5,7 +5,7 @@
 <title>SubAI</title>
 <style>
 /* ═══════════════════════════════════════════════════════════════
-   SubAI v4.0 — Stylesheet
+   SubAI v5.0 — Stylesheet (personal edition)
    ═══════════════════════════════════════════════════════════════ */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -326,12 +326,24 @@ select option { background: #1a1a2e; color: #ffffff; padding: 8px; font-weight: 
   display: flex; align-items: center; justify-content: space-between;
   flex-shrink: 0; display: none;
 }
+
+/* ── v5 additions: settings fields ── */
+.fld-l { display: block; font-size: 12px; color: var(--t1); margin: 10px 0 4px; font-weight: 600; }
+.fld {
+  width: 100%; padding: 9px 12px; border-radius: 8px;
+  background: #1a1a2e; border: 1px solid var(--glassBd2); color: #fff;
+  font-family: Consolas, 'Courier New', monospace; font-size: 12px; outline: none;
+}
+.fld:focus { border-color: var(--accent2); box-shadow: 0 0 0 2px rgba(99,102,241,0.15); }
+.note { font-size: 12px; color: var(--t1); line-height: 1.8; }
 </style>
 </head>
 <body>
 
 <!-- ═══════════════════════════════════════════════════════════
-     HTML Structure
+     SubAI v5 — Personal edition
+     Premiere → Modal relay → Whisper → back to Premiere.
+     No login, no quota, no AI correction, no AWS / Vercel / Supabase.
      ═══════════════════════════════════════════════════════════ -->
 
 <div class="update-bar" id="updateBar" onclick="doUpdate()">🔄 גרסה חדשה זמינה — לחץ לעדכון</div>
@@ -344,41 +356,22 @@ select option { background: #1a1a2e; color: #ffffff; padding: 8px; font-weight: 
   <div class="pill" id="pill">...</div>
 </div>
 
-<div class="user-bar" id="userBar">
-  <span id="userEmail">-</span>
-  <span id="quotaMini">-</span>
-</div>
-
-<div class="tabs" id="tabBar" style="display:none">
+<div class="tabs" id="tabBar">
   <button class="tab on" data-s="main">🎙 תמלול</button>
-  <button class="tab" data-s="account">👤 חשבון</button>
+  <button class="tab" data-s="settings">⚙️ הגדרות</button>
 </div>
 
 <div id="screens">
 
-  <!-- ONBOARDING -->
-  <div class="screen on" id="s-onboard">
-    <div class="welcome">
-      <div class="welcome-icon">✨</div>
-      <h2>SubAI — כתוביות AI</h2>
-      <p>כתוביות מדויקות בעברית ישירות בתוך Premiere Pro.<br>התחבר עם Google כדי להתחיל.</p>
-    </div>
-    <div class="card" style="text-align:center">
-      <button class="btn-google" id="btnGoogle">
-        <svg width="18" height="18" viewBox="0 0 48 48">
-          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-        </svg>
-        התחבר עם Google
-      </button>
-      <div class="msg" id="loginMsg"></div>
-    </div>
-  </div>
-
   <!-- MAIN -->
-  <div class="screen" id="s-main">
+  <div class="screen on" id="s-main">
+    <div class="card" id="recoverBox" style="display:none">
+      <div class="card-t">♻️ תמלול קודם</div>
+      <div class="note" id="recoverMsg" style="margin-bottom:10px"></div>
+      <button class="btn-action" id="btnRecover">הצב בטיימליין</button>
+      <button class="btn-mini" id="btnRecoverDrop" style="margin-top:8px">התעלם</button>
+    </div>
+
     <div class="card" id="ioCard">
       <div class="card-t">🎯 הגדרות תמלול</div>
       <div id="ioStatus"></div>
@@ -425,7 +418,7 @@ select option { background: #1a1a2e; color: #ffffff; padding: 8px; font-weight: 
       </div>
     </div>
 
-    <button class="btn-run" id="btnRun" disabled>✨ תמלל עם AI</button>
+    <button class="btn-run" id="btnRun" disabled>🎙 תמלל</button>
 
     <div class="card" id="progBox">
       <div class="prog-track"><div class="prog-fill" id="pFill"></div></div>
@@ -448,30 +441,34 @@ select option { background: #1a1a2e; color: #ffffff; padding: 8px; font-weight: 
     </div>
   </div>
 
-  <!-- ACCOUNT -->
-  <div class="screen" id="s-account">
-    <div class="plan-box">
-      <div class="plan-name" id="acPlan">-</div>
-      <div style="font-size:11px;color:var(--t2);margin-top:2px" id="acPlanSub"></div>
+  <!-- SETTINGS -->
+  <div class="screen" id="s-settings">
+    <div class="card">
+      <div class="card-t">🔌 חיבור ל-Modal</div>
+      <label class="fld-l" for="inRelay">כתובת ה-Relay</label>
+      <input class="fld" id="inRelay" dir="ltr" spellcheck="false" autocomplete="off"
+             placeholder="https://yehudasnow--subai-relay-web.modal.run">
+      <label class="fld-l" for="inToken">סיסמה (SUBAI_TOKEN)</label>
+      <input class="fld" id="inToken" type="password" dir="ltr" spellcheck="false" autocomplete="off">
+      <button class="btn-action" id="btnSave" style="margin-top:14px">💾 שמור ובדוק חיבור</button>
+      <div class="msg" id="setMsg"></div>
     </div>
     <div class="card">
-      <div class="card-t">📊 שימוש</div>
-      <div class="usage-bar"><div class="usage-fill" id="usageFill" style="width:0%"></div></div>
-      <div class="usage-text"><span id="usageLeft">-</span><span id="usageTotal">-</span></div>
+      <div class="card-t">ℹ️ איך זה עובד</div>
+      <div class="note">
+        האודיו של ה-In/Out נשלח ל-Relay הפרטי שלך ב-Modal, ומשם ל-Whisper.
+        התמלול חוזר בדיוק כמו ש-Whisper החזיר — בלי תיקון AI, בלי חשבון ובלי מכסה.
+        האודיו נמחק מ-Modal מיד בסיום התמלול, והתוצאה נמחקת אחרי שהכתוביות הוצבו.
+      </div>
     </div>
-    <button class="btn-action" id="btnManage" onclick="openManage()">🌐 נהל מנוי באתר</button>
-    <button class="btn-logout" id="btnLogout">🚪 התנתק</button>
   </div>
 </div>
 
 <div class="ftr">
-  <span>SubAI v4.0</span>
+  <span>SubAI v5.0 · אישי</span>
   <span id="ftrSt" style="color:var(--t2)">...</span>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════
-     JavaScript — Production Build v4.0
-     ═══════════════════════════════════════════════════════════ -->
 <script>
 'use strict';
 
@@ -479,17 +476,21 @@ select option { background: #1a1a2e; color: #ffffff; padding: 8px; font-weight: 
 const FS     = require('fs');
 const PATH   = require('path');
 const OS     = require('os');
-const { spawn, exec } = require('child_process');
+const { spawn } = require('child_process');
 const https  = require('https');
 const http   = require('http');
+const URLc   = require('url').URL;
 
 // ── Configuration ──
-const API_BASE='https://www.subai.co.il';
-const PLUGIN_VERSION = '4.3.0';
-const EXPORT_TIMEOUT = 120000;   // 2 minutes max for audio export
-const IO_POLL_INTERVAL = 2000;   // In/Out refresh interval
-const LOGIN_POLL_INTERVAL = 2000;
-const LOGIN_POLL_MAX_ATTEMPTS = 90;
+const PLUGIN_VERSION    = '5.0.0';
+const DEFAULT_RELAY_URL = 'https://yehudasnow--subai-relay-web.modal.run';
+const UPDATE_BASE       = 'https://raw.githubusercontent.com/yehudasnow-alt/subai-web/main/public/plugin-update/';
+const EXPORT_TIMEOUT    = 120000;          // 2 minutes max for audio export
+const IO_POLL_INTERVAL  = 2000;            // In/Out refresh interval
+const JOB_POLL_DELAY    = 3000;            // poll the relay every 3 s
+const JOB_POLL_MAX      = 75 * 60 * 1000;  // give up after 75 min
+const SETTINGS_KEY      = 'subai_settings';
+const PENDING_KEY       = 'subai_pending_job';
 
 // ── DOM Helpers ──
 const $ = (id) => document.getElementById(id);
@@ -499,7 +500,7 @@ function escapeForEvalScript(str) {
 }
 
 function sanitizeFilename(str) {
-    return str.replace(/[<>:"\/\\|?*\s]/g, '_').substring(0, 50);
+    return String(str || 'seq').replace(/[<>:"\/\\|?*\s]/g, '_').substring(0, 50);
 }
 
 function formatDuration(seconds) {
@@ -511,6 +512,26 @@ function formatDuration(seconds) {
 
 function setFooter(msg) { $('ftrSt').textContent = msg; }
 function setPill(text)  { $('pill').textContent = text;  }
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function safeDelete(filePath) {
+    try { if (FS.existsSync(filePath)) FS.unlinkSync(filePath); }
+    catch (e) { /* non-critical */ }
+}
+
+// Folder this panel is installed in (used by auto-update)
+function extDir() {
+    try {
+        let p = decodeURIComponent(new URLc(window.location.href).pathname);
+        if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1);              // "/C:/..." → "C:/..."
+        const dir = PATH.dirname(p);
+        if (FS.existsSync(PATH.join(dir, 'index.html'))) return dir;
+    } catch (e) { /* fall through */ }
+    return PATH.join(process.env.APPDATA || '', 'Adobe', 'CEP', 'extensions', 'com.subai.cloud.panel');
+}
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -530,9 +551,6 @@ function evalScript(script, callback) {
     cb(JSON.stringify({ ok: false, e: 'CEP bridge not found' }));
 }
 
-/**
- * evalScriptAsync — Promise wrapper for evalScript
- */
 function evalScriptAsync(script) {
     return new Promise((resolve) => {
         evalScript(script, (result) => resolve(result));
@@ -563,112 +581,687 @@ function waitBridge(timeoutMs, callback) {
 
 
 // ═══════════════════════════════════════════════════════════════
-// Auth & Storage
+// Settings & local storage
 // ═══════════════════════════════════════════════════════════════
 
-function saveAuth(data) {
-    try { localStorage.setItem('subai_auth', JSON.stringify(data)); } catch (e) { /* */ }
+function loadSettings() {
+    try {
+        const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
+        if (s && typeof s.relayUrl === 'string') return { relayUrl: s.relayUrl, token: s.token || '' };
+    } catch (e) { /* */ }
+    return { relayUrl: DEFAULT_RELAY_URL, token: '' };
 }
-function loadAuth() {
-    try { return JSON.parse(localStorage.getItem('subai_auth') || 'null'); } catch (e) { return null; }
+function saveSettings(s) {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) { /* */ }
 }
-function clearAuth() {
-    try { localStorage.removeItem('subai_auth'); } catch (e) { /* */ }
+function isConfigured() {
+    return !!(SETTINGS.relayUrl && SETTINGS.token);
 }
+
+function loadPending() {
+    try { return JSON.parse(localStorage.getItem(PENDING_KEY) || 'null'); } catch (e) { return null; }
+}
+function savePending(p) {
+    try { localStorage.setItem(PENDING_KEY, JSON.stringify(p)); } catch (e) { /* */ }
+}
+function clearPending() {
+    try { localStorage.removeItem(PENDING_KEY); } catch (e) { /* */ }
+}
+
+let SETTINGS = loadSettings();
 
 
 // ═══════════════════════════════════════════════════════════════
-// Network Layer
+// Network Layer — talks only to your own Modal relay
 // ═══════════════════════════════════════════════════════════════
 
-function apiPost(endpoint, body) {
+function httpRequest(method, urlStr, opts) {
+    opts = opts || {};
     return new Promise((resolve, reject) => {
-        const data = JSON.stringify(body);
-        const url  = new (require('url').URL)(API_BASE + endpoint);
-        const mod  = url.protocol === 'https:' ? https : http;
+        let url;
+        try { url = new URLc(urlStr); }
+        catch (e) { reject(new Error('כתובת לא תקינה: ' + urlStr)); return; }
+
+        const isHttp  = url.protocol === 'http:';
+        const mod     = isHttp ? http : https;
+        const body    = opts.body == null ? null : opts.body;
+        const headers = Object.assign({}, opts.headers || {});
+        if (body !== null) headers['Content-Length'] = Buffer.byteLength(body);
 
         const req = mod.request({
+            protocol: url.protocol,
             hostname: url.hostname,
-            port:     url.port || 443,
-            path:     url.pathname,
-            method:   'POST',
-            headers: {
-                'Content-Type':   'application/json',
-                'Content-Length': Buffer.byteLength(data)
-            },
-            timeout: 300000
-        }, (res) => {
-            let buf = '';
-            res.on('data', (chunk) => buf += chunk);
-            res.on('end', () => {
-                try { resolve(JSON.parse(buf)); }
-                catch (e) { reject(new Error('Invalid server response')); }
-            });
-        });
-
-        req.on('error', (e) => reject(e));
-        req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
-        req.write(data);
-        req.end();
-    });
-}
-
-function apiGet(endpoint) {
-    return new Promise((resolve, reject) => {
-        const url = new (require('url').URL)(API_BASE + endpoint);
-        const mod = url.protocol === 'https:' ? https : http;
-
-        const req = mod.request({
-            hostname: url.hostname,
-            port:     url.port || 443,
-            path:     url.pathname,
-            method:   'GET',
-            timeout:  10000
-        }, (res) => {
-            let buf = '';
-            res.on('data', (chunk) => buf += chunk);
-            res.on('end', () => {
-                try { resolve(JSON.parse(buf)); } catch (e) { resolve({}); }
-            });
-        });
-
-        req.on('error', (e) => reject(e));
-        req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
-        req.end();
-    });
-}
-
-function uploadToS3(signedUrl, filePath) {
-    return new Promise((resolve, reject) => {
-        const fileData = FS.readFileSync(filePath);
-        const url = new (require('url').URL)(signedUrl);
-        const mod = url.protocol === 'https:' ? https : http;
-
-        const req = mod.request({
-            hostname: url.hostname,
-            port:     url.port || (url.protocol === 'https:' ? 443 : 80),
+            port:     url.port || (isHttp ? 80 : 443),
             path:     url.pathname + url.search,
-            method:   'PUT',
-            headers: {
-                'Content-Type':   'audio/mpeg',
-                'Content-Length': fileData.length
-            },
-            timeout: 120000
+            method:   method,
+            headers:  headers,
+            timeout:  opts.timeout || 60000
         }, (res) => {
-            let buf = '';
-            res.on('data', (chunk) => buf += chunk);
-            res.on('end', () => {
-                if (res.statusCode >= 200 && res.statusCode < 300) resolve();
-                else reject(new Error('S3 upload failed: HTTP ' + res.statusCode));
-            });
+            const chunks = [];
+            res.on('data', (c) => chunks.push(c));
+            res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+            res.on('error', reject);
         });
 
         req.on('error', (e) => reject(e));
-        req.on('timeout', () => { req.destroy(); reject(new Error('Upload timeout')); });
-        req.write(fileData);
+        req.on('timeout', () => { req.destroy(new Error('Request timeout')); });
+        if (body !== null) req.write(body);
         req.end();
     });
 }
+
+/** Call the relay. Throws Error with .status on HTTP errors (FastAPI "detail" as message). */
+async function relay(method, path, opts) {
+    opts = opts || {};
+    const base    = String(SETTINGS.relayUrl || '').trim().replace(/\/+$/, '');
+    const headers = { 'X-SubAI-Token': SETTINGS.token || '' };
+    let body = null;
+    if (opts.json !== undefined) { body = JSON.stringify(opts.json); headers['Content-Type'] = 'application/json'; }
+    else if (opts.raw)           { body = opts.raw;                  headers['Content-Type'] = 'application/octet-stream'; }
+
+    const res  = await httpRequest(method, base + path, { headers: headers, body: body, timeout: opts.timeout });
+    const text = res.body.toString('utf8');
+    let data = null;
+    try { data = JSON.parse(text); } catch (e) { /* not JSON */ }
+
+    if (res.status < 200 || res.status >= 300) {
+        const detail = data && (data.detail || data.message || data.error);
+        const err = new Error(typeof detail === 'string' ? detail : ('HTTP ' + res.status));
+        err.status = res.status;
+        throw err;
+    }
+    if (!data) {
+        const err = new Error('תשובה לא תקינה מה-Relay');
+        err.status = res.status;
+        throw err;
+    }
+    return data;
+}
+
+function relayDelete(jobId) {
+    if (!jobId) return;
+    relay('DELETE', '/job/' + encodeURIComponent(jobId), { timeout: 30000 }).catch(() => {});
+}
+
+/** Retry network errors / 5xx / 429; client errors (4xx) are thrown immediately. */
+async function withRetry(fn, tries) {
+    let last;
+    for (let i = 0; i < tries; i++) {
+        try { return await fn(); }
+        catch (e) {
+            last = e;
+            if (e.status && e.status < 500 && e.status !== 429) throw e;
+            if (CANCEL) throw e;
+            await sleep(1000 * (i + 1));
+        }
+    }
+    throw last;
+}
+
+/** Upload the audio file to the relay in chunks. Returns the job id. */
+async function uploadAudio(filePath, lang, onProgress) {
+    const size  = FS.statSync(filePath).size;
+    const start = await withRetry(() => relay('POST',
+        '/upload?lang=' + encodeURIComponent(lang) + '&size=' + size, { timeout: 60000 }), 3);
+    const jobId = start.job_id;
+    const chunk = start.chunk_size;
+
+    const fd = FS.openSync(filePath, 'r');
+    try {
+        let index = 0;
+        for (let off = 0; off < size; off += chunk, index++) {
+            if (CANCEL) { relayDelete(jobId); throw new Error('בוטל.'); }
+            const len = Math.min(chunk, size - off);
+            const buf = Buffer.alloc(len);
+            FS.readSync(fd, buf, 0, len, off);
+            const i = index;
+            await withRetry(() => relay('PUT', '/upload/' + jobId + '/' + i, { raw: buf, timeout: 180000 }), 4);
+            if (onProgress) onProgress((off + len) / size);
+        }
+    } finally {
+        try { FS.closeSync(fd); } catch (e) { /* */ }
+    }
+
+    try {
+        await withRetry(() => relay('POST', '/upload/' + jobId + '/done', { timeout: 60000 }), 3);
+    } catch (e) {
+        // The first "done" may have succeeded even though its answer got lost.
+        try {
+            const j = await relay('GET', '/job/' + jobId, { timeout: 30000 });
+            if (['queued', 'transcribing', 'done'].indexOf(j.status) !== -1) return jobId;
+        } catch (e2) { /* */ }
+        throw e;
+    }
+    return jobId;
+}
+
+/** Poll the relay until the job is done. Throws Error with .kind: cancel | failed | timeout | gone | net */
+async function waitForJob(jobId, onStatus) {
+    const t0 = Date.now();
+    let netErrors = 0;
+
+    while (true) {
+        if (CANCEL) { const e = new Error('בוטל.'); e.kind = 'cancel'; throw e; }
+        if (Date.now() - t0 > JOB_POLL_MAX) { const e = new Error('התמלול לקח יותר מדי זמן'); e.kind = 'timeout'; throw e; }
+
+        await sleep(JOB_POLL_DELAY);
+        if (CANCEL) { const e = new Error('בוטל.'); e.kind = 'cancel'; throw e; }
+
+        let j;
+        try {
+            j = await relay('GET', '/job/' + encodeURIComponent(jobId), { timeout: 60000 });
+            netErrors = 0;
+        } catch (e) {
+            if (e.status === 404) { e.kind = 'gone'; throw e; }
+            if (e.status === 401) { e.kind = 'failed'; throw e; }
+            if (++netErrors > 40) { e.kind = 'net'; throw e; }   // ~2+ minutes without connection
+            continue;
+        }
+
+        if (j.status === 'done') return j;
+        if (j.status === 'failed') { const e = new Error(j.error || 'שגיאת תמלול'); e.kind = 'failed'; throw e; }
+        if (onStatus) onStatus(j.status, Date.now() - t0);
+    }
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// Whisper post-processing — moved here from the old Vercel route
+// (api/transcribe/process v10.2), transpiled 1:1 from TypeScript.
+// Hallucination filter + caption splitting. NO AI step.
+// ═══════════════════════════════════════════════════════════════
+
+// ==CORE-START==
+// Splitting tuning
+const SPLIT_CONFIG = {
+    // word4+ smart-break thresholds
+    pauseGapSec: 0.45, // a silence ≥ this between words → natural break
+    earlyBreakSlackBefore: 1, // for gs≥4, allow break at (gs - earlyBreakSlackBefore) on .!?
+    bindingExtraSlots: 2, // allow up to gs + bindingExtraSlots when bound
+};
+// ══════════════════════════════════════════════════════════════
+// STEP 1: BUILD TIMED SEGMENTS (unchanged)
+// ══════════════════════════════════════════════════════════════
+function buildTimedSegments(segments, words) {
+    if (!words || words.length === 0) {
+        return segments.map((seg) => ({
+            ...seg,
+            words: seg.text.split(/\s+/).filter((w) => w).map((w, i, arr) => {
+                const dur = seg.end - seg.start;
+                const wd = dur / arr.length;
+                return {
+                    start: +(seg.start + i * wd).toFixed(3),
+                    end: +(seg.start + (i + 1) * wd).toFixed(3),
+                    word: w,
+                };
+            }),
+        }));
+    }
+    const result = [];
+    let wIdx = 0;
+    for (const seg of segments) {
+        const sw = [];
+        while (wIdx < words.length) {
+            const w = words[wIdx];
+            if (w.start >= seg.start - 0.15 && w.start < seg.end + 0.15) {
+                sw.push(w);
+                wIdx++;
+            }
+            else if (w.start >= seg.end + 0.15) {
+                break;
+            }
+            else {
+                wIdx++;
+            }
+        }
+        result.push({
+            start: sw.length > 0 ? sw[0].start : seg.start,
+            end: sw.length > 0 ? sw[sw.length - 1].end : seg.end,
+            text: sw.length > 0 ? sw.map((w) => w.word).join(" ") : seg.text,
+            words: sw,
+        });
+    }
+    if (wIdx < words.length) {
+        const rem = words.slice(wIdx);
+        result.push({
+            start: rem[0].start, end: rem[rem.length - 1].end,
+            text: rem.map((w) => w.word).join(" "), words: rem,
+        });
+    }
+    return result;
+}
+function filterHallucinations(segments, words, prompt) {
+    const filtered = [];
+    let removedCount = 0;
+    for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        const dur = seg.end - seg.start;
+        const text = seg.text.trim();
+        const textWords = text.split(/\s+/).filter((w) => w);
+        const uniqueWords = new Set(textWords.map((w) => w.replace(/[.!?,;:]/g, ""))).size;
+        let skip = false;
+        let reason = "";
+        if (dur > 5 && uniqueWords <= 2 && textWords.length >= 3) {
+            skip = true;
+            reason = "stuck loop";
+        }
+        if (dur > 6 && textWords.length <= 1) {
+            skip = true;
+            reason = `single word ${dur.toFixed(1)}s`;
+        }
+        if (dur > 10 && textWords.length <= 3) {
+            skip = true;
+            reason = "too long for content";
+        }
+        if (i > 0 && text === segments[i - 1].text.trim()) {
+            skip = true;
+            reason = "exact duplicate";
+        }
+        if (prompt && text.length > 5) {
+            const ct = text.replace(/[.!?,;:\s]/g, "");
+            const cp = prompt.replace(/[.!?,;:\s]/g, "");
+            if (cp.includes(ct) || ct.includes(cp)) {
+                skip = true;
+                reason = "prompt leak";
+            }
+        }
+        if (textWords.length >= 4 && uniqueWords <= 2) {
+            skip = true;
+            reason = "repeating pattern";
+        }
+        if (text.length > 10) {
+            const charCounts = new Map();
+            for (const ch of text.replace(/\s/g, "")) {
+                charCounts.set(ch, (charCounts.get(ch) || 0) + 1);
+            }
+            const totalChars = text.replace(/\s/g, "").length;
+            for (const [, count] of charCounts) {
+                if (count / totalChars > 0.8) {
+                    skip = true;
+                    reason = "repeating character";
+                    break;
+                }
+            }
+        }
+        if (i > 0 && !skip && text.length > 10) {
+            const prevText = segments[i - 1].text.trim();
+            if (levenshtein(text, prevText) < 0.15) {
+                skip = true;
+                reason = "near-duplicate";
+            }
+        }
+        if (skip) {
+            console.log(`[FILTER] Removed seg ${i} (${reason}): "${text.substring(0, 40)}…"`);
+            removedCount++;
+        }
+        else {
+            filtered.push(seg);
+        }
+    }
+    if (removedCount > 0 && words.length > 0) {
+        const filteredWords = [];
+        for (const w of words) {
+            if (filtered.some((s) => w.start >= s.start - 0.1 && w.start < s.end + 0.1)) {
+                filteredWords.push(w);
+            }
+        }
+        console.log(`[FILTER] Removed ${removedCount}, kept ${filtered.length}. Words: ${words.length}→${filteredWords.length}`);
+        return { segments: filtered, words: filteredWords };
+    }
+    return { segments, words };
+}
+function levenshtein(a, b) {
+    if (a === b)
+        return 0;
+    if (!a.length)
+        return 1;
+    if (!b.length)
+        return 1;
+    const m = [];
+    for (let i = 0; i <= a.length; i++)
+        m[i] = [i];
+    for (let j = 0; j <= b.length; j++)
+        m[0][j] = j;
+    for (let i = 1; i <= a.length; i++)
+        for (let j = 1; j <= b.length; j++)
+            m[i][j] = Math.min(m[i - 1][j] + 1, m[i][j - 1] + 1, m[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return m[a.length][b.length] / Math.max(a.length, b.length);
+}
+// ══════════════════════════════════════════════════════════════
+// STEP 3: SPLITTING — v10.2
+// ══════════════════════════════════════════════════════════════
+function applySplitting(segs, style, wpg) {
+    const all = [];
+    for (const s of segs)
+        for (const w of s.words)
+            all.push(w);
+    if (all.length === 0)
+        return segs;
+    if (style === "sentence")
+        return splitSentence(all);
+    if (style && style.startsWith("word")) {
+        const n = parseInt(style.replace("word", "")) || wpg || 1;
+        return splitWords(all, Math.max(1, Math.min(6, n)));
+    }
+    return splitAuto(all);
+}
+function mkSeg(words) {
+    return {
+        start: words[0].start,
+        end: words[words.length - 1].end,
+        text: words.map((w) => w.word).join(" "),
+    };
+}
+function splitSentence(all) {
+    const r = [];
+    let c = [];
+    for (const w of all) {
+        c.push(w);
+        if (/[.!?]$/.test(w.word.trim())) {
+            r.push(mkSeg(c));
+            c = [];
+        }
+    }
+    if (c.length > 0)
+        r.push(mkSeg(c));
+    return r;
+}
+/**
+ * splitWords — unchanged from v10.1
+ *
+ * • gs === 1 (TikTok): STRICT — every word is its own segment.
+ * • gs === 2 or 3:     binding override allows up to gs+2.
+ * • gs >= 4:           smart sentence/pause/comma awareness.
+ */
+function splitWords(all, gs) {
+    if (gs === 1) {
+        return all.map((w) => mkSeg([w]));
+    }
+    const r = [];
+    let c = [];
+    for (let i = 0; i < all.length; i++) {
+        c.push(all[i]);
+        if (gs >= 4) {
+            const trimmed = all[i].word.trim();
+            if (c.length >= gs - SPLIT_CONFIG.earlyBreakSlackBefore &&
+                /[.!?]$/.test(trimmed)) {
+                r.push(mkSeg(c));
+                c = [];
+                continue;
+            }
+            if (c.length >= gs && /[.!?]$/.test(trimmed)) {
+                r.push(mkSeg(c));
+                c = [];
+                continue;
+            }
+            if (c.length >= gs &&
+                i + 1 < all.length &&
+                all[i + 1].start - all[i].end >= SPLIT_CONFIG.pauseGapSec) {
+                r.push(mkSeg(c));
+                c = [];
+                continue;
+            }
+            if (c.length >= gs && /,$/.test(trimmed)) {
+                r.push(mkSeg(c));
+                c = [];
+                continue;
+            }
+        }
+        if (c.length >= gs) {
+            if (i + 1 < all.length &&
+                isBound(all[i], all[i + 1]) &&
+                c.length < gs + SPLIT_CONFIG.bindingExtraSlots) {
+                continue;
+            }
+            r.push(mkSeg(c));
+            c = [];
+        }
+    }
+    if (c.length > 0)
+        r.push(mkSeg(c));
+    return r;
+}
+/**
+ * splitAuto — REWRITTEN in v10.2
+ *
+ * Goal: a new line should NEVER start with the tail of the previous sentence.
+ *
+ * Rules in order of priority:
+ *  1. Word ends with .!?  → break immediately (sentence end).
+ *  2. Word ends with ","  AND ct.length ≥ 20 → break immediately (clause end).
+ *  3. ct.length ≥ HARD or duration ≥ MAXD → MUST break:
+ *       - if there's a comma earlier in the chunk, break THERE (clean clause)
+ *       - else use countTail to push connectors forward
+ *       - else hard cut
+ *  4. ct.length ≥ SOFT and at least 2 words →
+ *       - look ahead: is there a .!? or "," reachable within HARD?
+ *           → YES: keep accumulating (wait for the natural boundary)
+ *           → NO : check binding chain — extend if it fits within HARD
+ *           → else: break (preferring the last seen comma in chunk, then tail)
+ *
+ * Net effect:
+ *   "יהודה אוהב לאכול בננה, ומשה אוהב פיסטוק."
+ *   At "לאכול" we're at SOFT range; we look ahead, see "בננה,", reach it
+ *   within HARD → wait. At "בננה," the comma rule fires → clean break.
+ *   Result: ["יהודה אוהב לאכול בננה,"] ["ומשה אוהב פיסטוק."]
+ */
+function splitAuto(all) {
+    const SOFT = 38, HARD = 50, MAXD = 4;
+    const r = [];
+    let c = [];
+    let ct = "";
+    let lastCommaIdx = -1; // index inside `c` where the most recent "," sits
+    // Look ahead from index `i` for the next word ending with .!?,
+    // returning true if reachable within HARD chars from currentLen.
+    const naturalBreakReachable = (i, currentLen) => {
+        let extra = 0;
+        for (let j = i + 1; j < all.length; j++) {
+            extra += all[j].word.length + 1;
+            if (currentLen + extra > HARD)
+                return false;
+            if (/[.!?,]$/.test(all[j].word.trim()))
+                return true;
+        }
+        return false;
+    };
+    // Recompute lastCommaIdx for the current `c` (used after a partial flush).
+    const recomputeCommaIdx = () => {
+        lastCommaIdx = -1;
+        for (let j = 0; j < c.length; j++) {
+            if (/,$/.test(c[j].word.trim()))
+                lastCommaIdx = j;
+        }
+    };
+    // Flush words c[0..upToIdx] (inclusive), keep the rest as a tail.
+    const flushUpTo = (upToIdx) => {
+        const head = c.slice(0, upToIdx + 1);
+        const tail = c.slice(upToIdx + 1);
+        if (head.length > 0)
+            r.push(mkSeg(head));
+        c = tail;
+        ct = c.map((w) => w.word).join(" ");
+        recomputeCommaIdx();
+    };
+    // Flush everything in `c`.
+    const flushAll = () => {
+        if (c.length > 0)
+            r.push(mkSeg(c));
+        c = [];
+        ct = "";
+        lastCommaIdx = -1;
+    };
+    for (let i = 0; i < all.length; i++) {
+        const w = all[i];
+        c.push(w);
+        ct = ct ? ct + " " + w.word : w.word;
+        const trimmed = w.word.trim();
+        const dur = c.length > 1 ? w.end - c[0].start : 0;
+        // ── Rule 1: hard sentence end → always break ──
+        if (/[.!?]$/.test(trimmed)) {
+            flushAll();
+            continue;
+        }
+        // Track the most recent comma inside the current chunk.
+        if (/,$/.test(trimmed)) {
+            lastCommaIdx = c.length - 1;
+            // ── Rule 2: comma break when chunk has meaningful content ──
+            if (ct.length >= 20) {
+                flushAll();
+                continue;
+            }
+        }
+        // ── Rule 3: hard cap reached → must break, prefer last comma ──
+        if (ct.length >= HARD || dur >= MAXD) {
+            if (lastCommaIdx >= 1 && lastCommaIdx < c.length - 1) {
+                // Break at the last comma so the next segment starts cleanly.
+                flushUpTo(lastCommaIdx);
+                continue;
+            }
+            // No comma to lean on — push trailing connectors forward.
+            const lb = countTail(c);
+            if (lb > 0 && c.length - lb >= 2) {
+                const head = c.slice(0, c.length - lb);
+                const tail = c.slice(c.length - lb);
+                r.push(mkSeg(head));
+                c = tail;
+                ct = c.map((x) => x.word).join(" ");
+                recomputeCommaIdx();
+                continue;
+            }
+            flushAll();
+            continue;
+        }
+        // ── Rule 4: soft threshold — wait for a natural boundary if possible ──
+        if (ct.length >= SOFT && c.length >= 2) {
+            // (a) If a sentence-end or comma is reachable ahead within HARD, wait.
+            if (naturalBreakReachable(i, ct.length))
+                continue;
+            // (b) Otherwise, try to extend through a binding chain if it fits.
+            const chain = countChain(all, i + 1);
+            if (chain > 0) {
+                let chainExtra = 0;
+                for (let x = 1; x <= chain && i + x < all.length; x++) {
+                    chainExtra += all[i + x].word.length + 1;
+                }
+                if (ct.length + chainExtra <= HARD)
+                    continue;
+            }
+            // (c) No good boundary ahead. Break, preferring last comma in chunk.
+            if (lastCommaIdx >= 1 && lastCommaIdx < c.length - 1) {
+                flushUpTo(lastCommaIdx);
+                continue;
+            }
+            // Else use tail logic.
+            const lb = countTail(c);
+            if (lb > 0 && c.length - lb >= 2) {
+                const head = c.slice(0, c.length - lb);
+                const tail = c.slice(c.length - lb);
+                r.push(mkSeg(head));
+                c = tail;
+                ct = c.map((x) => x.word).join(" ");
+                recomputeCommaIdx();
+                continue;
+            }
+            flushAll();
+        }
+    }
+    if (c.length > 0)
+        r.push(mkSeg(c));
+    return r;
+}
+function isBound(a, b) {
+    const wa = a.word.trim().replace(/[,.:;!?"״""—…]+$/g, "");
+    const wb = b.word.trim().replace(/[,.:;!?"״""—…]+$/g, "");
+    if ([
+        "הרב", "הגאון", "הרבנית", "מורנו", "ורבנו", "המקובל", "הצדיק",
+        "ר'", "רבי", "רבנו", "מרן", "כבוד", "כ\"ק",
+        "דר", "ד\"ר", "פרופ", "פרופ'", "מר", "גב", "גב'", "עו\"ד",
+        "השר", "השרה", "הנשיא", "הנשיאה", "ראש", "סגן",
+        "אלוף", "תא\"ל", "אל\"מ", "סא\"ל", "רס\"ן", "סרן", "סגן",
+    ].includes(wa))
+        return true;
+    if (["לא", "אל", "אין", "בלי", "ללא", "אינו", "אינה", "אינם", "אינן", "איננו"].includes(wa))
+        return true;
+    if (!wa.startsWith("ה") && wb.startsWith("ה") && wb.length > 2)
+        return true;
+    if ([
+        "את", "של", "על", "אל", "עם", "בת", "בן", "כל", "גם", "רק", "כי", "אם", "או", "כמו",
+        "ו", "וגם", "אבל", "אלא", "אך", "אולם", "לכן", "משום", "מפני", "בגלל", "למרות",
+        "בין", "לבין", "כדי", "כאשר", "כש", "לכש", "מש", "ש", "שלא", "עד", "מול", "נגד",
+        "לפי", "אצל", "בשביל", "למען", "כלפי", "מתוך", "בתוך", "מאחורי", "לפני", "אחרי",
+    ].includes(wa))
+        return true;
+    if (wb === "של")
+        return true;
+    if (/^\d+$/.test(wa))
+        return true;
+    if ([
+        'שליט"א', 'שליטא', 'זצ"ל', 'זצל', 'זיע"א', 'נ"ע', 'ע"ה', 'הי"ד', 'יבדל"א',
+    ].some((h) => wb.replace(/[""״]/g, '"') === h))
+        return true;
+    if (wa === "בית" && ["ספר", "חולים", "כנסת", "משפט", "דין", "מדרש", "עלמין"].includes(wb))
+        return true;
+    if (wa === "ארץ" && wb === "ישראל")
+        return true;
+    if (wa === "חוק" && wb === "יסוד")
+        return true;
+    if (wa === "ראש" && ["הממשלה", "העיר", "ישיבה", "השנה", "חודש"].includes(wb))
+        return true;
+    if (wa === "בני" && ["אדם", "ישראל", "ברק", "תורה"].includes(wb))
+        return true;
+    return false;
+}
+function countChain(w, si) {
+    let c = 0, i = si;
+    while (i < w.length && i > 0 && isBound(w[i - 1], w[i])) {
+        c++;
+        i++;
+    }
+    return c;
+}
+function countTail(c) {
+    if (c.length < 2)
+        return 0;
+    let n = 0;
+    for (let i = c.length - 1; i >= 1; i--) {
+        const a = c[i].word.trim().replace(/[,.:;!?]+$/g, "");
+        if ([
+            "הרב", "הגאון", "מורנו", "ורבנו", "המקובל", "לא", "אל", "אין",
+            "את", "של", "על", "אל", "עם", "כל", "גם", "כי", "ש", "כש",
+            "ו", "וגם", "אבל", "אלא", "בין", "כדי", "כאשר",
+        ].includes(a))
+            n++;
+        else
+            break;
+    }
+    return n;
+}
+
+
+/** Whisper response → final caption segments (timestamps from 0 = In point). */
+function processWhisperResult(mr, lang, style, wpg) {
+    const rawSegs = (mr.segments || []).map((s) => ({
+        start: s.start, end: s.end, text: (s.text || '').trim(),
+    }));
+    const rawWords = (mr.words || []).map((w) => ({
+        start: w.start, end: w.end, word: (w.word || '').trim(),
+        probability: w.probability,
+    }));
+    if (rawSegs.length === 0) return [];
+
+    const hePrompt = lang === 'he'
+        ? 'שלום, זהו תמלול מקצועי בעברית תקנית. סימני פיסוק: נקודה, פסיק, סימן שאלה. שמות אנשים, מקומות ומונחים מקצועיים נכתבים במדויק.'
+        : '';
+    const cleaned = filterHallucinations(rawSegs, rawWords, hePrompt);
+    if (cleaned.segments.length === 0) return [];
+
+    const timedSegs = buildTimedSegments(cleaned.segments, cleaned.words);
+    const final = applySplitting(timedSegs, style || 'auto', parseInt(wpg) || 1);
+    return final
+        .map((s) => ({ start: s.start, end: s.end, text: String(s.text || '').trim() }))
+        .filter((s) => s.text);
+}
+// ==CORE-END==
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -681,7 +1274,6 @@ document.querySelectorAll('.csel').forEach((csel) => {
 
     btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        // Close all other dropdowns
         document.querySelectorAll('.csel-list.open').forEach((l) => {
             if (l !== list) l.classList.remove('open');
         });
@@ -706,34 +1298,20 @@ document.addEventListener('click', () => {
 
 function cselVal(id) { return $(id).dataset.value || ''; }
 
-function cselSet(id, val, label) {
-    const el = $(id);
-    el.dataset.value = val;
-    el.querySelector('.csel-btn').textContent = label;
-    el.querySelectorAll('.csel-opt').forEach((o) => {
-        o.classList.toggle('on', o.dataset.v === val);
-    });
-}
-
 
 // ═══════════════════════════════════════════════════════════════
 // Tab Navigation
 // ═══════════════════════════════════════════════════════════════
 
-document.querySelectorAll('.tab').forEach((tab) => {
-    tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach((t) => t.classList.remove('on'));
-        document.querySelectorAll('.screen').forEach((s) => s.classList.remove('on'));
-        tab.classList.add('on');
-        $('s-' + tab.dataset.s).classList.add('on');
-        if (tab.dataset.s === 'account') refreshAccount();
-    });
-});
-
-function showScreen(id) {
+function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.s === name));
     document.querySelectorAll('.screen').forEach((s) => s.classList.remove('on'));
-    $(id).classList.add('on');
+    $('s-' + name).classList.add('on');
 }
+
+document.querySelectorAll('.tab').forEach((tab) => {
+    tab.addEventListener('click', () => switchTab(tab.dataset.s));
+});
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -741,86 +1319,11 @@ function showScreen(id) {
 // ═══════════════════════════════════════════════════════════════
 
 let SEQ     = null;    // Current sequence metadata
-let USER    = null;    // Logged-in user info
 let RUNNING = false;   // Transcription in progress
 let CANCEL  = false;   // Cancellation requested
-let API_KEY = null;    // Auth key
 
-let _pollTimer = null; // Login poll timer
 let _seqTimer  = null; // Sequence load retry timer
 let _ioTimer   = null; // In/Out polling timer
-
-
-// ═══════════════════════════════════════════════════════════════
-// Google Login
-// ═══════════════════════════════════════════════════════════════
-
-$('btnGoogle').onclick = () => {
-    const sessionId = 'ps_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
-    const loginUrl  = API_BASE + '/auth?plugin_session=' + sessionId;
-
-    // Open browser
-    try { exec('start "" "' + loginUrl + '"'); }
-    catch (e) { try { exec('open "' + loginUrl + '"'); } catch (e2) { /* */ } }
-
-    $('loginMsg').textContent = 'ממתין להתחברות בדפדפן...';
-    $('loginMsg').className = 'msg busy';
-    $('btnGoogle').disabled = true;
-
-    let attempts = 0;
-    clearInterval(_pollTimer);
-
-    _pollTimer = setInterval(async () => {
-        attempts++;
-
-        if (attempts > LOGIN_POLL_MAX_ATTEMPTS) {
-            clearInterval(_pollTimer);
-            $('loginMsg').textContent = 'פג תוקף — נסה שוב';
-            $('loginMsg').className = 'msg bad';
-            $('btnGoogle').disabled = false;
-            return;
-        }
-
-        try {
-            const result = await apiPost('/api/auth/plugin-session', {
-                action: 'check',
-                session_id: sessionId
-            });
-
-            if (result.ok && result.status === 'ready' && result.api_key) {
-                clearInterval(_pollTimer);
-                API_KEY = result.api_key;
-                USER = result.user;
-                saveAuth({ api_key: result.api_key, user: USER });
-                enterApp();
-            }
-        } catch (e) { /* continue polling */ }
-    }, LOGIN_POLL_INTERVAL);
-};
-
-
-// ═══════════════════════════════════════════════════════════════
-// App Entry / Session
-// ═══════════════════════════════════════════════════════════════
-
-function enterApp() {
-    $('tabBar').style.display = 'flex';
-    $('userBar').style.display = 'flex';
-    $('userEmail').textContent = USER.email || '';
-    showScreen('s-main');
-    document.querySelector('[data-s="main"]').classList.add('on');
-    setPill('מוכן ✓');
-    setFooter('מוכן');
-    updateQuotaMini();
-    loadSeq();
-    startInOutRefresh();
-    checkForUpdate();
-}
-
-function updateQuotaMini() {
-    if (!USER) return;
-    $('quotaMini').textContent = Math.max(0, USER.remaining || 0).toFixed(0) + ' דק׳';
-}
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -876,14 +1379,17 @@ function updateSeqUI() {
 }
 
 function updateRunButton() {
-    const ready = SEQ && SEQ.hasWA;
+    const ready = SEQ && SEQ.hasWA && isConfigured();
     $('btnRun').disabled = !ready || RUNNING;
 
-    if (!ready && SEQ) {
+    if (!isConfigured()) {
+        $('btnRun').textContent = '⚙️ הגדר חיבור בלשונית הגדרות';
+        $('btnRun').style.opacity = '0.4';
+    } else if (SEQ && !SEQ.hasWA) {
         $('btnRun').textContent = '⚠️ סמן In/Out קודם';
         $('btnRun').style.opacity = '0.4';
     } else {
-        $('btnRun').textContent = '✨ תמלל עם AI';
+        $('btnRun').textContent = '🎙 תמלל';
         $('btnRun').style.opacity = '';
     }
 }
@@ -891,7 +1397,8 @@ function updateRunButton() {
 function startInOutRefresh() {
     clearInterval(_ioTimer);
     _ioTimer = setInterval(() => {
-        if (RUNNING || !SEQ) return;
+        if (RUNNING) return;
+        if (!SEQ) { loadSeq(0); return; }
 
         evalScript('getInOut()', (raw) => {
             try {
@@ -923,6 +1430,14 @@ function loadAudioTracks() {
 
             const list = $('cselTrack').querySelector('.csel-list');
             list.innerHTML = '<div class="csel-opt on" data-v="all">כל הרצועות</div>';
+            list.firstChild.addEventListener('click', (e) => {
+                e.stopPropagation();
+                $('cselTrack').dataset.value = 'all';
+                $('cselTrack').querySelector('.csel-btn').textContent = 'כל הרצועות';
+                list.querySelectorAll('.csel-opt').forEach((o) => o.classList.remove('on'));
+                list.firstChild.classList.add('on');
+                list.classList.remove('open');
+            });
 
             data.tracks.forEach((track) => {
                 const opt = document.createElement('div');
@@ -977,95 +1492,89 @@ function restoreTracksAfter() {
 
 
 // ═══════════════════════════════════════════════════════════════
-// Account Management
+// Settings screen
 // ═══════════════════════════════════════════════════════════════
 
-async function refreshAccount() {
-    if (!API_KEY) return;
+function setMsg(text, cls) {
+    $('setMsg').textContent = text;
+    $('setMsg').className = 'msg ' + (cls || '');
+}
 
+$('btnSave').onclick = async () => {
+    const relayUrl = $('inRelay').value.trim().replace(/\/+$/, '');
+    const token    = $('inToken').value.trim();
+
+    if (!/^https?:\/\/[^\s]+$/i.test(relayUrl)) { setMsg('כתובת ה-Relay לא תקינה', 'bad'); return; }
+    if (!token) { setMsg('הכנס את הסיסמה שהגדרת ב-Modal', 'bad'); return; }
+
+    SETTINGS = { relayUrl: relayUrl, token: token };
+    saveSettings(SETTINGS);
+    updateRunButton();
+
+    setMsg('בודק חיבור... (בפעם הראשונה זה יכול לקחת כמה שניות)', 'busy');
+    $('btnSave').disabled = true;
     try {
-        const result = await apiPost('/api/transcribe', { api_key: API_KEY, action: 'status' });
-        if (!result.error) {
-            USER.plan      = result.plan;
-            USER.used      = result.minutes_used;
-            USER.limit     = result.minutes_limit;
-            USER.remaining = result.minutes_remaining;
+        const r = await relay('GET', '/ping', { timeout: 90000 });
+        if (!r.whisper_url_set) {
+            setMsg('ה-Relay מחובר, אבל WHISPER_URL לא הוגדר ב-secret של Modal', 'bad');
+        } else {
+            setMsg('✅ מחובר ל-Modal — אפשר לתמלל', 'ok');
+            setPill('מוכן ✓');
+            checkPending();
         }
-    } catch (e) { /* */ }
-
-    if (!USER) return;
-
-    const planNames = { free: 'חינמי', pro: 'פרו ⭐', studio: 'סטודיו 💎' };
-    $('acPlan').textContent = planNames[USER.plan] || USER.plan;
-    $('acPlanSub').textContent = USER.plan === 'free' ? '10 דקות מתנה' : USER.limit + ' דקות לחודש';
-
-    const usagePercent = USER.limit > 0
-        ? Math.min(100, ((USER.used || 0) / USER.limit) * 100)
-        : 0;
-    $('usageFill').style.width = usagePercent + '%';
-    $('usageLeft').textContent = Math.max(0, (USER.remaining || 0)).toFixed(1) + ' דקות נותרו';
-    $('usageTotal').textContent = (USER.used || 0).toFixed(1) + ' / ' + (USER.limit || 0);
-    updateQuotaMini();
-}
-
-function openManage() {
-    try { exec('start "" "' + API_BASE + '/dashboard"'); }
-    catch (e) { try { exec('open "' + API_BASE + '/dashboard"'); } catch (e2) { /* */ } }
-}
+    } catch (e) {
+        setMsg(e.status === 401 ? '❌ סיסמה שגויה' : '❌ אין חיבור ל-Relay: ' + e.message, 'bad');
+    }
+    $('btnSave').disabled = false;
+};
 
 
 // ═══════════════════════════════════════════════════════════════
-// Auto-Update
+// Auto-Update — straight from your GitHub repo (no website needed)
 // ═══════════════════════════════════════════════════════════════
+
+function cmpVer(a, b) {
+    const pa = String(a).split('.').map((x) => parseInt(x) || 0);
+    const pb = String(b).split('.').map((x) => parseInt(x) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const d = (pa[i] || 0) - (pb[i] || 0);
+        if (d !== 0) return d > 0 ? 1 : -1;
+    }
+    return 0;
+}
+
+async function fetchText(url) {
+    const res = await httpRequest('GET', url, { timeout: 20000 });
+    if (res.status !== 200) throw new Error('HTTP ' + res.status);
+    return res.body.toString('utf8');
+}
 
 async function checkForUpdate() {
     try {
-        const result = await apiGet('/api/plugin-version');
-        if (result.version && result.version !== PLUGIN_VERSION) {
+        const info = JSON.parse(await fetchText(UPDATE_BASE + 'version.json?t=' + Date.now()));
+        if (info.version && cmpVer(info.version, PLUGIN_VERSION) > 0) {
             $('updateBar').style.display = 'block';
-            $('updateBar').textContent = `🔄 גרסה ${result.version} זמינה — לחץ לעדכון אוטומטי`;
+            $('updateBar').textContent = `🔄 גרסה ${info.version} זמינה — לחץ לעדכון`;
         }
-    } catch (e) { /* */ }
+    } catch (e) { /* offline / no version file — ignore */ }
 }
 
 async function doUpdate() {
     $('updateBar').textContent = '⬇ מעדכן...';
     $('updateBar').style.pointerEvents = 'none';
-
-    const extDir = PATH.join(
-        process.env.APPDATA || '',
-        'Adobe', 'CEP', 'extensions', 'com.subai.cloud.panel'
-    );
+    const dir = extDir();
 
     try {
-        // Download new index.html
-        const indexContent = await new Promise((resolve, reject) => {
-            const url = new (require('url').URL)(API_BASE + '/api/plugin-files?file=index.html');
-            https.get(url, (res) => {
-                let buf = '';
-                res.on('data', (d) => buf += d);
-                res.on('end', () => resolve(buf));
-            }).on('error', reject);
-        });
+        const indexContent = await fetchText(UPDATE_BASE + 'index.html?t=' + Date.now());
+        const jsxContent   = await fetchText(UPDATE_BASE + 'host.jsx?t=' + Date.now());
 
-        if (indexContent && indexContent.length > 1000) {
-            FS.writeFileSync(PATH.join(extDir, 'index.html'), indexContent, 'utf8');
-        }
+        if (indexContent.length < 1000 || indexContent.indexOf('SubAI') === -1) throw new Error('index.html לא תקין');
+        if (jsxContent.length < 500 || jsxContent.indexOf('function getSeq') === -1) throw new Error('host.jsx לא תקין');
 
-        // Download new host.jsx
-        const jsxContent = await new Promise((resolve, reject) => {
-            const url = new (require('url').URL)(API_BASE + '/api/plugin-files?file=host.jsx');
-            https.get(url, (res) => {
-                let buf = '';
-                res.on('data', (d) => buf += d);
-                res.on('end', () => resolve(buf));
-            }).on('error', reject);
-        });
-
-        if (jsxContent && jsxContent.length > 500) {
-            FS.mkdirSync(PATH.join(extDir, 'jsx'), { recursive: true });
-            FS.writeFileSync(PATH.join(extDir, 'jsx', 'host.jsx'), jsxContent, 'utf8');
-        }
+        try { FS.copyFileSync(PATH.join(dir, 'index.html'), PATH.join(dir, 'index.backup.html')); } catch (e) { /* */ }
+        FS.writeFileSync(PATH.join(dir, 'index.html'), indexContent, 'utf8');
+        FS.mkdirSync(PATH.join(dir, 'jsx'), { recursive: true });
+        FS.writeFileSync(PATH.join(dir, 'jsx', 'host.jsx'), jsxContent, 'utf8');
 
         $('updateBar').textContent = '✅ עודכן! סגור ופתח מחדש את Premiere Pro';
         $('updateBar').style.background = 'linear-gradient(135deg, rgba(52,211,153,0.2), rgba(52,211,153,0.1))';
@@ -1078,25 +1587,11 @@ async function doUpdate() {
 
 
 // ═══════════════════════════════════════════════════════════════
-// Utility: File Cleanup
-// ═══════════════════════════════════════════════════════════════
-
-function safeDelete(filePath) {
-    try { if (FS.existsSync(filePath)) FS.unlinkSync(filePath); }
-    catch (e) { /* non-critical */ }
-}
-
-function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-
-// ═══════════════════════════════════════════════════════════════
 // MAIN WORKFLOW — Transcription Pipeline
 // ═══════════════════════════════════════════════════════════════
 
 function setProgress(pct, msg, sub) {
-    $('pFill').style.width = pct + '%';
+    if (pct !== null && pct !== undefined) $('pFill').style.width = pct + '%';
     $('pMsg').textContent = msg;
     $('pSub').textContent = sub || '';
 }
@@ -1105,6 +1600,16 @@ function showError(msg) {
     $('errMsg').textContent = msg;
     $('errBox').style.display = 'block';
     setFooter('שגיאה');
+}
+
+function startRunUI() {
+    RUNNING = true;
+    CANCEL  = false;
+    updateRunButton();
+    $('resBox').style.display  = 'none';
+    $('errBox').style.display  = 'none';
+    $('recoverBox').style.display = 'none';
+    $('progBox').style.display = 'block';
 }
 
 function finishRun(success, errorMsg) {
@@ -1119,16 +1624,11 @@ function finishRun(success, errorMsg) {
 async function runAll() {
     // ── Precondition Checks ──
     if (RUNNING) return;
+    if (!isConfigured()) { switchTab('settings'); return; }
     if (!SEQ || !SEQ.hasWA) { showError('סמן In/Out בטיימליין.'); return; }
-    if (!API_KEY) { showError('התחבר תחילה.'); return; }
 
-    // ── Initialize Run ──
-    RUNNING = true;
-    CANCEL  = false;
-    updateRunButton();
-    $('resBox').style.display  = 'none';
-    $('errBox').style.display  = 'none';
-    $('progBox').style.display = 'block';
+    startRunUI();
+    const runStart = Date.now();
 
     const lang            = cselVal('cselLang');
     const style           = cselVal('cselStyle');
@@ -1136,6 +1636,7 @@ async function runAll() {
     const inSec           = SEQ.i;
     const outSec          = SEQ.o;
     const clipDuration    = outSec - inSec;
+    const seqName         = SEQ.name;
 
     if (clipDuration < 0.5) { finishRun(false, 'הקטע קצר מדי.'); return; }
 
@@ -1149,8 +1650,6 @@ async function runAll() {
     if (CANCEL) { restoreTracksAfter(); finishRun(false, 'בוטל.'); return; }
 
     // ── Step 2: Export Audio (Work Area Only) ──
-    // FIX: Export ONLY the work area — no ffmpeg trim needed
-    // This ensures sample-accurate timing from In to Out point
     setProgress(5, 'מייצא אודיו...', 'ייצוא Work Area בלבד');
 
     const exportRaw = await evalScriptAsync(
@@ -1181,7 +1680,6 @@ async function runAll() {
 
         if (exists && size > 1000) {
             if (isAsyncExport) {
-                // AME: wait for file size to stabilize
                 if (size === lastSize) {
                     stableMs += 500;
                     if (stableMs >= 2000) break;
@@ -1197,7 +1695,6 @@ async function runAll() {
         await sleep(500);
         waitedMs += 500;
 
-        // Update progress during wait
         const waitPct = Math.min(15, 5 + (waitedMs / EXPORT_TIMEOUT) * 10);
         setProgress(waitPct, 'מייצא אודיו...', `${Math.floor(waitedMs / 1000)} שניות`);
     }
@@ -1215,11 +1712,14 @@ async function runAll() {
     let audioFile = wavPath;
 
     await new Promise((resolve) => {
-        const proc = spawn('ffmpeg', [
-            '-y', '-i', wavPath,
-            '-ar', '16000', '-ac', '1', '-b:a', '64k',
-            mp3Path
-        ], { stdio: ['pipe', 'pipe', 'pipe'] });
+        let proc;
+        try {
+            proc = spawn('ffmpeg', [
+                '-y', '-i', wavPath,
+                '-ar', '16000', '-ac', '1', '-b:a', '64k',
+                mp3Path
+            ], { stdio: ['pipe', 'pipe', 'pipe'] });
+        } catch (e) { resolve(); return; }
 
         proc.on('close', (code) => {
             if (code === 0 && FS.existsSync(mp3Path) && FS.statSync(mp3Path).size > 200) {
@@ -1233,142 +1733,109 @@ async function runAll() {
 
     if (CANCEL) { safeDelete(audioFile); finishRun(false, 'בוטל.'); return; }
 
-    // ── Step 4: Get Upload URL ──
-    setProgress(22, 'מתחבר לשרת...', '');
+    // ── Step 4: Upload to your Modal relay ──
+    setProgress(20, 'מעלה אודיו ל-Modal...', '');
 
-    let uploadData;
+    let jobId;
     try {
-        uploadData = await apiPost('/api/transcribe', {
-            api_key: API_KEY,
-            action: 'get_upload_url'
+        jobId = await uploadAudio(audioFile, lang, (f) => {
+            setProgress(20 + Math.round(f * 22), 'מעלה אודיו ל-Modal...', Math.round(f * 100) + '%');
         });
     } catch (e) {
         safeDelete(audioFile);
-        finishRun(false, 'שגיאת חיבור לשרת.');
+        if (CANCEL) { finishRun(false, 'בוטל.'); return; }
+        finishRun(false, e.status === 401
+            ? 'סיסמה שגויה — בדוק בלשונית ⚙️ הגדרות.'
+            : 'העלאה נכשלה: ' + e.message);
         return;
     }
-
-    if (uploadData.error) {
-        safeDelete(audioFile);
-        finishRun(false, uploadData.message || 'שגיאה');
-        return;
-    }
-
-    // ── Step 5: Upload Audio ──
-    setProgress(32, 'מעלה אודיו...', '');
-
-    try {
-        await uploadToS3(uploadData.upload_url, audioFile);
-    } catch (e) {
-        safeDelete(audioFile);
-        finishRun(false, 'העלאה נכשלה: ' + e.message);
-        return;
-    }
-
     safeDelete(audioFile);
 
-    if (CANCEL) { finishRun(false, 'בוטל.'); return; }
+    // Remember the job so it can be recovered if the panel closes meanwhile
+    const ctx = { job_id: jobId, inSec: inSec, seqName: seqName, lang: lang, style: style,
+                  wpg: wordsPerGroup, created: Date.now(), runStart: runStart };
+    savePending(ctx);
 
-    // ── Step 6: Transcribe ──
-    setProgress(45, 'מתמלל...', 'זה יכול לקחת כמה שניות');
+    await completeJob(ctx);
+}
 
-    let result;
+/** Wait for the relay job, post-process, place captions, clean up. */
+async function completeJob(ctx) {
+    setProgress(45, 'ממתין ל-Whisper...', '');
+
+    let job;
     try {
-        result = await apiPost('/api/transcribe', {
-            api_key:        API_KEY,
-            action:         'transcribe',
-            download_url:   uploadData.download_url,
-            file_key:       uploadData.file_key,
-            lang:           lang,
-            model:          'large-v3',
-            // FIX: Do NOT send offset — server returns timestamps from 0.
-            // We apply the timeline offset client-side when placing captions.
-            // This prevents the double-offset bug.
-            audio_duration: clipDuration,
-            caption_style:  style,
-            words_per_group: wordsPerGroup
+        job = await waitForJob(ctx.job_id, (status, ms) => {
+            if (status === 'transcribing') {
+                setProgress(Math.min(86, 50 + Math.round(ms / 4000)), 'מתמלל ב-Modal...', formatDuration(ms / 1000));
+            } else {
+                setProgress(46, 'ממתין ל-Whisper...', formatDuration(ms / 1000));
+            }
         });
     } catch (e) {
+        if (e.kind === 'cancel') { relayDelete(ctx.job_id); clearPending(); finishRun(false, 'בוטל.'); return; }
+        if (e.kind === 'net') {
+            // keep the pending job: when the connection is back it can be recovered
+            finishRun(false, 'אין חיבור ל-Modal. התמלול ממשיך ברקע — פתח את הפאנל מחדש כדי לשחזר.');
+            return;
+        }
+        if (e.kind !== 'gone') relayDelete(ctx.job_id);
+        clearPending();
         finishRun(false, 'שגיאת תמלול: ' + e.message);
         return;
     }
 
-    if (result.error) { finishRun(false, result.message || 'שגיאת תמלול'); return; }
-
-    // ── v11 async pipeline: poll check_job until completed ──
-    if (result.status === 'processing' && result.job_id) {
-        const jobId = result.job_id;
-        const pollStart = Date.now();
-        const pollMax = 300000;   // 5 minutes
-        const pollDelay = 3000;   // 3 seconds
-        const statusMsgs = {
-            pending: 'ממתין בתור...',
-            whisper: 'מתמלל עם Whisper...',
-            ai_correction: 'מתקן עם AI...'
-        };
-        while (true) {
-            if (CANCEL) { finishRun(false, 'בוטל.'); return; }
-            if (Date.now() - pollStart > pollMax) {
-                finishRun(false, 'התמלול לקח יותר מדי זמן');
-                return;
-            }
-            await new Promise(r => setTimeout(r, pollDelay));
-            let poll;
-            try {
-                poll = await apiPost('/api/transcribe', {
-                    api_key: API_KEY,
-                    action:  'check_job',
-                    job_id:  jobId
-                });
-            } catch (e) {
-                continue; // transient — retry
-            }
-            if (poll.error || poll.status === 'failed') {
-                finishRun(false, poll.message || 'שגיאת תמלול');
-                return;
-            }
-            if (poll.status === 'completed') {
-                result = poll;
-                break;
-            }
-            const pct = poll.status === 'whisper' ? 60
-                      : poll.status === 'ai_correction' ? 78
-                      : 50;
-            setProgress(pct, statusMsgs[poll.status] || 'מעבד...', '');
-        }
-    }
-
-    const segments = result.segments || [];
-    const srt      = result.srt || '';
-
-    if (segments.length === 0 && !srt.trim()) {
+    const segments = processWhisperResult(job.result || {}, ctx.lang, ctx.style, ctx.wpg);
+    if (segments.length === 0) {
+        relayDelete(ctx.job_id);
+        clearPending();
         finishRun(false, 'לא נמצא דיבור בקטע.');
         return;
     }
 
-    const captionCount = result.count || segments.length;
+    // ── Place Captions on Timeline ──
+    setProgress(88, 'מציב כתוביות...', `${segments.length} כתוביות`);
+    await placeSegments(segments, ctx.inSec, ctx.seqName);
 
-    // ── Step 7: Place Captions on Timeline ──
-    // FIX: Apply timeline offset HERE — add inSec to each segment's start/end
-    // The server returns timestamps relative to the exported audio (from 0).
-    // We shift them to the correct timeline position.
-    setProgress(88, 'מציב כתוביות...', `${captionCount} כתוביות`);
+    relayDelete(ctx.job_id);
+    clearPending();
 
+    // ── Done! ──
+    setProgress(100, '✅ הושלם!', '');
+    await sleep(600);
+    $('progBox').style.display = 'none';
+
+    const totalSec = ((Date.now() - (ctx.runStart || ctx.created)) / 1000).toFixed(1);
+    let chipsHtml = `<span class="chip g">✅ ${segments.length} כתוביות</span>`;
+    chipsHtml += `<span class="chip b">⚡ ${totalSec}s</span>`;
+    if (job.whisper_sec) chipsHtml += `<span class="chip b">🎙 Whisper ${job.whisper_sec}s</span>`;
+    $('rChips').innerHTML = chipsHtml;
+    $('resBox').style.display = 'block';
+
+    setTimeout(() => { $('resBox').style.display = 'none'; }, 5000);
+    setFooter(`✓ ${segments.length} כתוביות!`);
+
+    RUNNING = false;
+    CANCEL  = false;
+    updateRunButton();
+}
+
+/**
+ * placeSegments — shift segments by the In point and put them on the timeline
+ * (same logic as v4: placeCaptions → SRT import fallback).
+ */
+async function placeSegments(segments, inSec, seqName) {
     const timelineSegments = segments.map((seg) => ({
         start: seg.start + inSec,
         end:   seg.end   + inSec,
         text:  seg.text
     }));
 
-    // Prepare JSON for ExtendScript — use safe escaping
     const segmentsJsonForES = JSON.stringify(timelineSegments)
         .replace(/\\/g, '\\\\')
         .replace(/'/g, "\\'");
 
-    const extPath = PATH.join(
-        process.env.APPDATA || '',
-        'Adobe', 'CEP', 'extensions', 'com.subai.cloud.panel'
-    ).replace(/\\/g, '/');
+    const extPath = extDir().replace(/\\/g, '/');
 
     const placeRaw = await evalScriptAsync(
         `placeCaptions('${segmentsJsonForES}','${extPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', -1)`
@@ -1380,10 +1847,9 @@ async function runAll() {
 
     // Fallback: save SRT and import if direct placement failed
     if (!placeResult.ok || placeResult.method === 'srt_in_project') {
-        // Build corrected SRT with timeline-offset timestamps
         const correctedSrt = buildCorrectedSRT(segments, inSec);
-        const srtFileName  = sanitizeFilename(SEQ.name) + '_SubAI_' + Date.now() + '.srt';
-        const srtPath      = PATH.join(tmpDir, srtFileName);
+        const srtFileName  = sanitizeFilename(seqName) + '_SubAI_' + Date.now() + '.srt';
+        const srtPath      = PATH.join(OS.tmpdir(), srtFileName);
 
         FS.writeFileSync(srtPath, correctedSrt, 'utf8');
 
@@ -1393,40 +1859,10 @@ async function runAll() {
             );
         }
     }
-
-    // ── Step 8: Done! ──
-    setProgress(100, '✅ הושלם!', '');
-    await sleep(600);
-    $('progBox').style.display = 'none';
-
-    // Update quota
-    if (result.minutes_remaining !== undefined) {
-        USER.remaining = result.minutes_remaining;
-        USER.used = (USER.limit || 0) - result.minutes_remaining;
-        updateQuotaMini();
-    }
-
-    // Show results
-    let chipsHtml = `<span class="chip g">✅ ${captionCount} כתוביות</span>`;
-    chipsHtml += `<span class="chip b">⚡ ${result.elapsed || '—'}s</span>`;
-    if (result.minutes_charged) {
-        chipsHtml += `<span class="chip b">📊 ${result.minutes_charged} דק׳</span>`;
-    }
-    $('rChips').innerHTML = chipsHtml;
-    $('resBox').style.display = 'block';
-
-    setTimeout(() => { $('resBox').style.display = 'none'; }, 5000);
-    setFooter(`✓ ${captionCount} כתוביות!`);
-
-    RUNNING = false;
-    CANCEL  = false;
-    updateRunButton();
 }
 
 /**
  * buildCorrectedSRT — Creates SRT string with timeline-offset timestamps
- * @param {Array} segments — Raw segments from server (timestamps from 0)
- * @param {number} offset — Timeline In point in seconds
  */
 function buildCorrectedSRT(segments, offset) {
     let lines = [];
@@ -1458,6 +1894,47 @@ function formatSRTTimestamp(sec) {
 
 
 // ═══════════════════════════════════════════════════════════════
+// Recovery — a transcription that finished while the panel was closed
+// ═══════════════════════════════════════════════════════════════
+
+async function checkPending() {
+    const p = loadPending();
+    if (!p || !p.job_id || RUNNING) return;
+    if (Date.now() - (p.created || 0) > 24 * 3600 * 1000) { relayDelete(p.job_id); clearPending(); return; }
+
+    let j;
+    try { j = await relay('GET', '/job/' + encodeURIComponent(p.job_id), { timeout: 30000 }); }
+    catch (e) {
+        if (e.status === 404) clearPending();
+        return;
+    }
+    if (j.status === 'failed') { relayDelete(p.job_id); clearPending(); return; }
+
+    const when = new Date(p.created).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+    $('recoverMsg').textContent = (j.status === 'done' ? 'תמלול שהסתיים' : 'תמלול שעדיין רץ') +
+        ` מ-${when} (רצף: ${p.seqName || '-'}, מ-${formatDuration(p.inSec)}). פתח את הרצף הנכון ולחץ:`;
+    $('btnRecover').textContent = j.status === 'done' ? 'הצב בטיימליין' : 'המתן והצב בטיימליין';
+    $('recoverBox').style.display = 'block';
+}
+
+$('btnRecover').onclick = async () => {
+    const p = loadPending();
+    $('recoverBox').style.display = 'none';
+    if (!p || RUNNING) return;
+    startRunUI();
+    p.runStart = Date.now();
+    await completeJob(p);
+};
+
+$('btnRecoverDrop').onclick = () => {
+    const p = loadPending();
+    if (p) relayDelete(p.job_id);
+    clearPending();
+    $('recoverBox').style.display = 'none';
+};
+
+
+// ═══════════════════════════════════════════════════════════════
 // Event Bindings
 // ═══════════════════════════════════════════════════════════════
 
@@ -1472,23 +1949,6 @@ $('btnErrClose').onclick = () => {
     $('errBox').style.display = 'none';
 };
 
-$('btnLogout').onclick = () => {
-    clearAuth();
-    API_KEY = null;
-    USER    = null;
-    SEQ     = null;
-    $('tabBar').style.display   = 'none';
-    $('userBar').style.display  = 'none';
-    $('updateBar').style.display = 'none';
-    showScreen('s-onboard');
-    $('loginMsg').textContent = '';
-    $('btnGoogle').disabled = false;
-    setPill('');
-    setFooter('');
-    clearInterval(_ioTimer);
-    clearInterval(_pollTimer);
-};
-
 
 // ═══════════════════════════════════════════════════════════════
 // Boot Sequence
@@ -1497,6 +1957,9 @@ $('btnLogout').onclick = () => {
 (function boot() {
     setPill('מחבר...');
     setFooter('מחבר...');
+    $('inRelay').value = SETTINGS.relayUrl || DEFAULT_RELAY_URL;
+    $('inToken').value = SETTINGS.token || '';
+    updateRunButton();
 
     waitBridge(10000, (connected) => {
         if (!connected) {
@@ -1505,32 +1968,17 @@ $('btnLogout').onclick = () => {
             return;
         }
 
-        const saved = loadAuth();
-        if (saved && saved.api_key && saved.user) {
-            API_KEY = saved.api_key;
-            USER = saved.user;
-            enterApp();
+        loadSeq();
+        startInOutRefresh();
+        checkForUpdate();
 
-            // Refresh quota in background
-            setTimeout(async () => {
-                try {
-                    const r = await apiPost('/api/transcribe', {
-                        api_key: saved.api_key,
-                        action: 'status'
-                    });
-                    if (!r.error) {
-                        USER.plan      = r.plan;
-                        USER.used      = r.minutes_used;
-                        USER.limit     = r.minutes_limit;
-                        USER.remaining = r.minutes_remaining;
-                        updateQuotaMini();
-                    }
-                } catch (e) { /* */ }
-            }, 3000);
+        if (!isConfigured()) {
+            switchTab('settings');
+            setPill('צריך הגדרה');
+            setMsg('הכנס את הסיסמה שהגדרת ב-Modal ולחץ שמור', 'busy');
         } else {
-            showScreen('s-onboard');
-            setPill('');
-            setFooter('');
+            setPill('מוכן ✓');
+            checkPending();
         }
     });
 })();
