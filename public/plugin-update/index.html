@@ -447,7 +447,7 @@ select option { background: #1a1a2e; color: #ffffff; padding: 8px; font-weight: 
       <div class="card-t">🔌 חיבור ל-Modal</div>
       <label class="fld-l" for="inRelay">כתובת ה-Relay</label>
       <input class="fld" id="inRelay" dir="ltr" spellcheck="false" autocomplete="off"
-             placeholder="https://yehudasnow--subai-relay-web.modal.run">
+             placeholder="https://yehudasnow--subai-relay-web.us-east.modal.run">
       <label class="fld-l" for="inToken">סיסמה (SUBAI_TOKEN)</label>
       <input class="fld" id="inToken" type="password" dir="ltr" spellcheck="false" autocomplete="off">
       <button class="btn-action" id="btnSave" style="margin-top:14px">💾 שמור ובדוק חיבור</button>
@@ -465,7 +465,7 @@ select option { background: #1a1a2e; color: #ffffff; padding: 8px; font-weight: 
 </div>
 
 <div class="ftr">
-  <span>SubAI v5.0 · אישי</span>
+  <span id="ftrVer">SubAI v5 · אישי</span>
   <span id="ftrSt" style="color:var(--t2)">...</span>
 </div>
 
@@ -482,8 +482,9 @@ const http   = require('http');
 const URLc   = require('url').URL;
 
 // ── Configuration ──
-const PLUGIN_VERSION    = '5.0.0';
-const DEFAULT_RELAY_URL = 'https://yehudasnow--subai-relay-web.modal.run';
+const PLUGIN_VERSION    = '5.0.1';
+const DEFAULT_RELAY_URL = 'https://yehudasnow--subai-relay-web.us-east.modal.run';
+const CONFIG_FILE       = 'subai_config.json';   // optional {relayUrl, token} next to index.html
 const UPDATE_BASE       = 'https://raw.githubusercontent.com/yehudasnow-alt/subai-web/main/public/plugin-update/';
 const EXPORT_TIMEOUT    = 120000;          // 2 minutes max for audio export
 const IO_POLL_INTERVAL  = 2000;            // In/Out refresh interval
@@ -584,11 +585,20 @@ function waitBridge(timeoutMs, callback) {
 // Settings & local storage
 // ═══════════════════════════════════════════════════════════════
 
+/** Settings come from the panel (localStorage); first run can be pre-filled by subai_config.json. */
 function loadSettings() {
     try {
         const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
-        if (s && typeof s.relayUrl === 'string') return { relayUrl: s.relayUrl, token: s.token || '' };
+        if (s && typeof s.relayUrl === 'string' && s.token) return { relayUrl: s.relayUrl, token: s.token };
     } catch (e) { /* */ }
+    try {
+        const c = JSON.parse(FS.readFileSync(PATH.join(extDir(), CONFIG_FILE), 'utf8').replace(/^\uFEFF/, ''));
+        if (c && c.token) {
+            const s = { relayUrl: String(c.relayUrl || DEFAULT_RELAY_URL).trim().replace(/\/+$/, ''), token: String(c.token).trim() };
+            saveSettings(s);
+            return s;
+        }
+    } catch (e) { /* no config file */ }
     return { relayUrl: DEFAULT_RELAY_URL, token: '' };
 }
 function saveSettings(s) {
@@ -1570,6 +1580,8 @@ async function doUpdate() {
 
         if (indexContent.length < 1000 || indexContent.indexOf('SubAI') === -1) throw new Error('index.html לא תקין');
         if (jsxContent.length < 500 || jsxContent.indexOf('function getSeq') === -1) throw new Error('host.jsx לא תקין');
+        // never downgrade to a host.jsx without the Premiere 2026 In/Out fix (v4.4.0)
+        if (jsxContent.indexOf('ENCODE_IN_TO_OUT') === -1) throw new Error('host.jsx ישן — העדכון בוטל');
 
         try { FS.copyFileSync(PATH.join(dir, 'index.html'), PATH.join(dir, 'index.backup.html')); } catch (e) { /* */ }
         FS.writeFileSync(PATH.join(dir, 'index.html'), indexContent, 'utf8');
@@ -1957,6 +1969,7 @@ $('btnErrClose').onclick = () => {
 (function boot() {
     setPill('מחבר...');
     setFooter('מחבר...');
+    $('ftrVer').textContent = 'SubAI v' + PLUGIN_VERSION + ' · אישי';
     $('inRelay').value = SETTINGS.relayUrl || DEFAULT_RELAY_URL;
     $('inToken').value = SETTINGS.token || '';
     updateRunButton();
