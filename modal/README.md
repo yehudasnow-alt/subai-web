@@ -27,16 +27,20 @@ python -m modal deploy subai_relay.py
 
 * `<כתובת-ה-Worker>` היא הכתובת של ה-Worker הקיים, אותה כתובת שהייתה ב-Vercel תחת `MODAL_ENDPOINT_URL`
   (נראית כמו `https://...--subai-whisper-whispertranscriber-transcribe.modal.run`).
-* בסוף ה-deploy תופיע כתובת כזו: `https://yehudasnow--subai-relay-web.modal.run`.
+* בסוף ה-deploy תופיע כתובת כזו: `https://yehudasnow--subai-relay-web.us-east.modal.run`.
 
-### 2. הפלאגין
-1. סגור את Premiere.
-2. החלף את `index.html` בתיקייה הזו (אפשר לגבות את הישן קודם):
-   `%APPDATA%\Adobe\CEP\extensions\com.subai.cloud.panel\`
-3. פתח את Premiere ואת SubAI. בלשונית **⚙️ הגדרות** הדבק את הסיסמה (הכתובת כבר ממולאת) ולחץ **שמור ובדוק חיבור**.
-4. אמורה להופיע ההודעה "✅ מחובר ל-Modal". מכאן מתמללים כרגיל: מסמנים In/Out ולוחצים 🎙 תמלל.
+### 2. הפלאגין, עם המתקין (`installer/install_SubAI_v5.bat`)
+1. שים את הקבצים במבנה הזה: `install_SubAI_v5.bat`, ולידו תיקיית `files\` שמכילה את `index.html`, `jsx\host.jsx` ו-`CSXS\manifest.xml`
+   (מ-`public/plugin-update/` ומ-`installer/CSXS/`).
+2. סגור את Premiere והרץ את ה-bat. הוא ישאל את הסיסמה (SUBAI_TOKEN), יגבה את הגרסה הישנה ל-`backup_v4`,
+   יעתיק את הגרסה החדשה ל-`%APPDATA%\Adobe\CEP\extensions\com.subai.cloud.panel\`
+   ויכתוב `subai_config.json`, כך שהפלאגין נפתח כשהוא כבר מחובר.
+3. פתח את Premiere > Window > Extensions > SubAI. מסמנים In/Out ולוחצים 🎙 תמלל.
 
-> אם תעלה גם את הקבצים ל-GitHub, הפלאגין יבדוק עדכונים בעתיד ישירות מ-GitHub (`public/plugin-update/version.json`), בלי צורך באתר.
+התקנה ידנית בלי מתקין: מחליפים את `index.html` ואת `jsx\host.jsx` בתיקייה שלמעלה, ומכניסים את הסיסמה בלשונית **⚙️ הגדרות**.
+
+> מגרסה 5 הפלאגין בודק עדכונים ישירות מ-GitHub (`public/plugin-update/version.json`), בלי צורך באתר.
+> `host.jsx` הוא גרסה 4.4.0, עם תיקון ה-In/Out לפרמייר 2026. המנגנון לא יאפשר לעדכון להחזיר אותו לגרסה ישנה.
 
 ---
 
